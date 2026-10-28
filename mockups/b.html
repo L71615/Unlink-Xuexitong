@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>方案B 极简工作台</title>
+<style>
+  :root{--bg:#FFF;--line:#ECEDF0;--text:#14161A;--muted:#8A9099;--ink:#14161A;--weak:#F4F5F7;--ok:#2FA36B}
+  *{box-sizing:border-box}
+  html,body{margin:0;width:1200px;height:780px;overflow:hidden}
+  body{font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px}
+  .app{width:1200px;height:780px;display:flex;flex-direction:column}
+  header{height:64px;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 36px;gap:28px;flex:none}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:600;font-size:15px}
+  .logo{width:22px;height:22px;border-radius:6px;background:var(--ink);color:#fff;display:grid;place-items:center;font-size:11px;font-weight:700}
+  nav{display:flex;gap:24px;margin-left:10px;height:64px;align-items:center}
+  nav a{color:#5A616B;text-decoration:none;font-size:13.5px;height:64px;display:flex;align-items:center;border-bottom:2px solid transparent}
+  nav a.on{color:var(--ink);border-bottom-color:var(--ink);font-weight:600}
+  .right{margin-left:auto;display:flex;align-items:center;gap:20px;color:#6C737D;font-size:13px}
+  .avatar{width:30px;height:30px;border-radius:50%;background:var(--weak);color:#4B525C;display:grid;place-items:center;font-size:12px;font-weight:600}
+  main{flex:1;display:flex;flex-direction:column;align-items:center;padding:34px 0 0;min-height:0}
+  .wrap{width:920px;flex:1;display:flex;flex-direction:column;gap:24px;min-height:0}
+  .lead{display:flex;align-items:baseline;gap:14px;flex:none}
+  .h1{font-size:30px;font-weight:600;letter-spacing:-.2px}
+  .lead .note{color:var(--muted);font-size:13px}
+  .lead .status{margin-left:auto;display:flex;gap:18px;color:#8A9099;font-size:12px}
+  .status b{color:var(--ok);font-weight:600}
+  .band{display:flex;align-items:flex-end;gap:26px;border:1px solid var(--line);border-radius:18px;padding:22px 26px;flex:none}
+  .left{flex:1;min-width:0}
+  .label{color:var(--muted);font-size:12px}
+  .course{font-size:20px;font-weight:600;margin-top:6px}
+  .track{width:320px;height:4px;background:var(--weak);border-radius:99px;margin-top:14px;overflow:hidden}
+  .track i{display:block;width:17%;height:100%;background:var(--ink);border-radius:99px}
+  .pct{font-size:12px;color:var(--muted);margin-top:8px}
+  .btns{display:flex;gap:10px}
+  .btn{height:42px;padding:0 20px;border-radius:10px;font-size:13.5px;font-weight:600;display:inline-flex;align-items:center;gap:8px;border:1px solid transparent;white-space:nowrap}
+  .btn.solid{background:var(--ink);color:#fff}
+  .btn.line{background:#fff;border-color:#D9DCE1;color:#20242B}
+  .grid{display:grid;grid-template-columns:1.7fr 1fr;gap:24px;flex:1;min-height:0}
+  .panel{border:1px solid var(--line);border-radius:18px;padding:20px 22px;display:flex;flex-direction:column;min-height:0}
+  .panel h3{margin:0 0 12px;font-size:12px;font-weight:600;color:#5A616B;letter-spacing:.08em}
+  .lines{font-family:Consolas,"Cascadia Mono",monospace;font-size:12px;line-height:26px;color:#3A4049;flex:1;overflow:hidden}
+  .t{color:#A2A8B1;margin-right:10px}
+  .ok{color:var(--ok)}
+  .stats{display:flex;flex-direction:column;gap:16px;margin-top:2px}
+  .stat{display:flex;align-items:baseline;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:14px}
+  .stat:last-child{border-bottom:0;padding-bottom:0}
+  .stat .n{font-size:24px;font-weight:600;letter-spacing:-.3px}
+  .stat .k{color:var(--muted);font-size:12px}
+  footer{padding:14px 36px;color:#A2A8B1;font-size:11.5px;display:flex;gap:14px;flex:none}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand"><div class="logo">学</div>学习助手</div>
+    <nav><a class="on" href="#">主页</a><a href="#">刷课日志</a><a href="#">测试成绩</a><a href="#">题库查询</a><a href="#">报错日志</a></nav>
+    <div class="right"><span>设置</span><span>帮助</span><div class="avatar">L</div></div>
+  </header>
+  <main>
+    <div class="wrap">
+      <div class="lead">
+        <div class="h1">主页</div>
+        <div class="note">让机器去刷，你去做别的</div>
+        <div class="status"><span>定时 <b>未开启</b></span><span>多端 关闭</span><span>账号 138****8021</span></div>
+      </div>
+      <section class="band">
+        <div class="left">
+          <div class="label">当前课程 · 章节</div>
+          <div class="course">大学生安全教育⑦</div>
+          <div class="track"><i></i></div>
+          <div class="pct">任务点 11 / 65 · 倍速 1x · 答题 DeepSeek</div>
+        </div>
+        <div class="btns"><div class="btn solid">▶ 开始刷课</div><div class="btn line">自动签到</div></div>
+      </section>
+      <div class="grid">
+        <section class="panel">
+          <h3>运行日志</h3>
+          <div class="lines">
+            <div><span class="t">11:42:03</span>正在检测页面内容</div>
+            <div><span class="t">11:42:05</span>该页面含有 ['视频']</div>
+            <div><span class="t">11:42:06</span>开始播放第 3 个视频，总时长 12:34</div>
+            <div><span class="t">11:44:30</span>调节倍数为：1X</div>
+            <div><span class="t">11:45:02</span><span class="ok">已完成第 2 个视频</span></div>
+            <div><span class="t">11:45:40</span>跳转下一页</div>
+            <div><span class="t">11:46:12</span>已检测到视频中有题目</div>
+            <div><span class="t">11:46:20</span>AI 给出的答案：['B. ...']</div>
+            <div><span class="t">11:46:31</span><span class="ok">视频题目已通过</span></div>
+          </div>
+        </section>
+        <section class="panel">
+          <h3>本次运行</h3>
+          <div class="stats">
+            <div class="stat"><span class="k">已完成任务点</span><span class="n">2</span></div>
+            <div class="stat"><span class="k">已运行</span><span class="n">42<span style="font-size:13px;color:#8A9099"> 分钟</span></span></div>
+            <div class="stat"><span class="k">答题正确</span><span class="n">18<span style="font-size:13px;color:#8A9099"> / 20</span></span></div>
+            <div class="stat"><span class="k">异常</span><span class="n">0</span></div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+  <footer><span>就绪</span><span>·</span><span>上次运行 今天 10:20</span><span style="margin-left:auto">学习助手 v1.0</span></footer>
+</div>
+</body>
+</html>

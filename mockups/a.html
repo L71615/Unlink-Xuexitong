@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>方案A 卡片工作台</title>
+<style>
+  :root{--bg:#F6F7F9;--panel:#FFF;--line:#E8EAEE;--text:#12161C;--muted:#7A828E;--accent:#2F6BFF;--weak:#EDF2FF;--ok:#2FA36B}
+  *{box-sizing:border-box}
+  html,body{margin:0;width:1200px;height:780px;overflow:hidden}
+  body{font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px}
+  .app{display:flex;width:1200px;height:780px}
+  .side{width:224px;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:20px 14px}
+  .brand{display:flex;align-items:center;gap:10px;padding:0 6px 16px}
+  .logo{width:28px;height:28px;border-radius:8px;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:700;font-size:13px}
+  .brand .name{font-weight:600;font-size:15px}
+  .brand .ver{color:var(--muted);font-size:11px;margin-left:auto}
+  .group{margin:12px 6px 6px;font-size:11px;color:#9AA1AB;letter-spacing:.12em}
+  .nav{display:flex;flex-direction:column;gap:2px}
+  .item{display:flex;align-items:center;gap:11px;height:38px;padding:0 10px;border-radius:9px;color:#3C434D;font-size:13.5px}
+  .ico{width:18px;height:18px;color:#8A929E;display:grid;place-items:center}
+  .ico svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+  .item.active{background:var(--weak);color:var(--accent);font-weight:600}
+  .item.active .ico{color:var(--accent)}
+  .side .spacer{flex:1}
+  .user{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--line);border-radius:12px}
+  .avatar{width:30px;height:30px;border-radius:50%;background:#E9EDF5;color:#5B6472;display:grid;place-items:center;font-size:12px;font-weight:600}
+  .user .who{font-size:12.5px}
+  .user .sub{color:var(--muted);font-size:11px;margin-top:1px}
+  .main{flex:1;padding:24px 30px 22px;display:flex;flex-direction:column;gap:16px}
+  .top{display:flex;align-items:flex-end;gap:12px}
+  .h1{font-size:22px;font-weight:600}
+  .sub{color:var(--muted);font-size:12.5px;margin-top:3px}
+  .top .right{margin-left:auto;display:flex;gap:8px}
+  .chip{display:flex;align-items:center;gap:6px;height:30px;padding:0 11px;border:1px solid var(--line);background:var(--panel);border-radius:999px;color:#5A626E;font-size:12px}
+  .dot{width:6px;height:6px;border-radius:50%;background:#C9CED6}
+  .dot.on{background:var(--ok)}
+  .row{display:grid;grid-template-columns:1.6fr 1fr;gap:16px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px 20px}
+  .card h3{margin:0;font-size:13px;font-weight:600;color:#2A3038}
+  .muted{color:var(--muted);font-size:12px}
+  .course{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:19px;font-weight:600}
+  .tag{font-size:11px;color:var(--accent);background:var(--weak);padding:3px 8px;border-radius:6px;font-weight:600}
+  .bar{height:8px;border-radius:99px;background:#EEF1F5;margin-top:16px;overflow:hidden}
+  .bar > i{display:block;height:100%;width:17%;background:var(--accent);border-radius:99px}
+  .meta{display:flex;gap:12px;margin-top:10px;color:#6C7480;font-size:12px}
+  .actions{display:flex;gap:10px;margin-top:18px}
+  .btn{height:40px;padding:0 18px;border-radius:10px;font-size:13.5px;font-weight:600;border:1px solid transparent;display:inline-flex;align-items:center;gap:7px}
+  .btn.primary{background:var(--accent);color:#fff}
+  .btn.ghost{background:#fff;border-color:var(--line);color:#333A44}
+  .btn.quiet{background:transparent;color:#8A919C}
+  .stack{display:flex;flex-direction:column;gap:16px}
+  .kv{display:flex;justify-content:space-between;margin-top:11px;font-size:12.5px;color:#4D545E}
+  .kv b{font-weight:600;color:#12161C}
+  .log{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px 18px;display:flex;flex-direction:column;min-height:0}
+  .log .head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+  .lines{font-family:Consolas,"Cascadia Mono",monospace;font-size:12px;line-height:23px;color:#3B424C}
+  .t{color:#9AA1AB;margin-right:10px}
+  .ok{color:var(--ok)}
+  .link{color:var(--accent);font-size:12px}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><div class="logo">学</div><div class="name">学习助手</div><div class="ver">v1.0</div></div>
+    <div class="group">学习</div>
+    <div class="nav">
+      <div class="item active"><span class="ico"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg></span>主页</div>
+      <div class="item"><span class="ico"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg></span>刷课日志</div>
+      <div class="item"><span class="ico"><svg viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5"/></svg></span>测试成绩</div>
+      <div class="item"><span class="ico"><svg viewBox="0 0 24 24"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M5 17h14"/></svg></span>题库查询</div>
+    </div>
+    <div class="group">其他</div>
+    <div class="nav">
+      <div class="item"><span class="ico"><svg viewBox="0 0 24 24"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg></span>报错日志</div>
+      <div class="item"><span class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 3v2.4M12 18.6V21M3 12h2.4M18.6 12H21M5.6 5.6l1.7 1.7M16.7 16.7l1.7 1.7M18.4 5.6l-1.7 1.7M7.3 16.7l-1.7 1.7"/></svg></span>设置</div>
+      <div class="item"><span class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.2a2.6 2.6 0 1 1 3.6 2.4c-.7.3-1.1 1-1.1 1.8v.4"/><path d="M12 17.2h.01"/></svg></span>帮助</div>
+    </div>
+    <div class="spacer"></div>
+    <div class="user"><div class="avatar">L</div><div><div class="who">已登录</div><div class="sub">138****8021</div></div></div>
+  </aside>
+  <main class="main">
+    <div class="top">
+      <div><div class="h1">主页</div><div class="sub">今天也可以让它自己跑</div></div>
+      <div class="right">
+        <div class="chip"><span class="dot"></span>定时 未开启</div>
+        <div class="chip"><span class="dot"></span>多端 关闭</div>
+      </div>
+    </div>
+    <div class="row">
+      <section class="card">
+        <h3>当前课程</h3>
+        <div class="muted" style="margin-top:4px">大学生安全教育⑦ · 章节</div>
+        <div class="course">大学生安全教育⑦ <span class="tag">进行中</span></div>
+        <div class="bar"><i></i></div>
+        <div class="meta"><span>任务点 11 / 65</span><span>倍速 1x</span><span>答题 DeepSeek</span></div>
+        <div class="actions">
+          <div class="btn primary">▶ 开始刷课</div>
+          <div class="btn ghost">自动签到</div>
+          <div class="btn quiet">结束</div>
+        </div>
+      </section>
+      <div class="stack">
+        <section class="card">
+          <h3>本次运行</h3>
+          <div class="kv"><span>已完成任务点</span><b>2</b></div>
+          <div class="kv"><span>已运行</span><b>00:42:13</b></div>
+          <div class="kv"><span>答题正确</span><b>18 / 20</b></div>
+        </section>
+        <section class="card">
+          <h3>快捷</h3>
+          <div class="kv"><span>检查更新</span><b>已是最新</b></div>
+          <div class="kv"><span>题目缓存</span><b>3 条</b></div>
+        </section>
+      </div>
+    </div>
+    <section class="log">
+      <div class="head"><h3>运行日志</h3><a class="link">查看全部</a></div>
+      <div class="lines">
+        <div><span class="t">11:42:03</span>正在检测页面内容</div>
+        <div><span class="t">11:42:05</span>该页面含有 ['视频']</div>
+        <div><span class="t">11:42:06</span>开始播放第 3 个视频，总时长 12:34</div>
+        <div><span class="t">11:44:30</span>调节倍数为：1X</div>
+        <div><span class="t">11:45:02</span><span class="ok">已完成第 2 个视频</span></div>
+        <div><span class="t">11:45:40</span>跳转下一页</div>
+        <div><span class="t">11:46:12</span>已检测到视频中有题目</div>
+      </div>
+    </section>
+  </main>
+</div>
+</body>
+</html>

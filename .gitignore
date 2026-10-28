@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.spec
+
+# 编辑器
+.idea/
+.vscode/
+
+# 运行日志
+*.log
+输出记录.log
+error.log
+
+# 本地配置、登录态与个人数据（不要提交）
+task/tool/account_info.json
+task/tool/cookies.pkl
+task/tool/face_cookies.pkl
+task/tool/face_url.json
+task/tool/course_name.json
+task/tool/course_process.json
+task/tool/*.pkl
+task/record/
+task/data/
+
+# 打包与临时产物
+build/
+dist/
+*.zip
+probe/
+.remote/
+.edge*/
