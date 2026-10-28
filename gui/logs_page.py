@@ -9,6 +9,7 @@ from tkinter import messagebox
 
 import customtkinter as ctk
 
+from core import resume as resume_store
 from gui import theme
 from gui.widgets import (Card, Hint, PageHeader, ProgressBar, SectionTitle,
                          ghost_button, text_button)
@@ -58,11 +59,13 @@ class RecordPage(ctk.CTkFrame):
 
         ghost_button(bar, "查询", self.refresh, icon="search",
                      height=34, width=88).grid(row=0, column=1, padx=(0, 8), pady=(14, 8))
+        text_button(bar, "重置断点", self._reset_resume, color=theme.MUTED,
+                    height=34).grid(row=0, column=2, padx=(0, 4), pady=(14, 8))
         text_button(bar, "删除记录", self._delete, color=theme.DANGER,
-                    height=34).grid(row=0, column=2, padx=(0, 12), pady=(14, 8))
+                    height=34).grid(row=0, column=3, padx=(0, 12), pady=(14, 8))
 
         self.progress_wrap = ctk.CTkFrame(bar, fg_color="transparent")
-        self.progress_wrap.grid(row=1, column=0, columnspan=3, sticky="ew",
+        self.progress_wrap.grid(row=1, column=0, columnspan=4, sticky="ew",
                                 padx=16, pady=(0, 14))
         self.progress_label = Hint(self.progress_wrap, "", size=11)
         self.progress_label.pack(side="left", padx=(0, 10))
@@ -118,12 +121,35 @@ class RecordPage(ctk.CTkFrame):
             done, total = data.get(course, (0, 0))
         except Exception:
             done, total = 0, 0
+
+        account = self.config.get_account() or self.config.load_account()
+        info = resume_store.snapshot(account.get("phone_number", "")).get(course, {})
+        state = {"done": "已完成", "running": "上次中断",
+                 "error": "上次出错"}.get(info.get("status", ""), "")
+        chapter = info.get("chapter", "")
+        detail = state or chapter or "未开始"
+        suffix = f" · 断点：{detail}"
+
         if total:
             self.progress.set(min(max(done / total, 0), 1))
-            self.progress_label.configure(text=f"进度 {done} / {total}（{done / total * 100:.1f}%）")
+            self.progress_label.configure(
+                text=f"进度 {done} / {total}（{done / total * 100:.1f}%）{suffix}")
         else:
             self.progress.set(0)
-            self.progress_label.configure(text="暂无进度数据")
+            self.progress_label.configure(text=f"暂无进度数据{suffix}")
+
+    def _reset_resume(self) -> None:
+        account = self.config.get_account() or self.config.load_account()
+        phone = account.get("phone_number", "")
+        course = self.course.get()
+        if not course:
+            return
+        if not messagebox.askyesno(
+                "重置断点", f"重置《{course}》的断点？\n下次会重新从这门课的开头刷。"):
+            return
+        resume_store.reset(phone, course)
+        messagebox.showinfo("已重置", "断点已清除")
+        self.refresh()
 
     def _delete(self) -> None:
         course = self.course.get()
@@ -262,17 +288,20 @@ class ErrorPage(ctk.CTkFrame):
 
 
 class HelpPage(ctk.CTkFrame):
-    def __init__(self, master, config, **kwargs):
+    def __init__(self, master, config, on_check=None, **kwargs):
         kwargs.setdefault("fg_color", theme.BG)
         super().__init__(master, **kwargs)
         self.config = config
+        self._on_check = on_check
         self._build()
 
     def _build(self) -> None:
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
-        PageHeader(self, "帮助", "常见问题与使用说明").grid(
-            row=0, column=0, sticky="ew", padx=30, pady=(24, 0))
+        header = PageHeader(self, "帮助", "常见问题与使用说明")
+        header.grid(row=0, column=0, sticky="ew", padx=30, pady=(24, 0))
+        if self._on_check is not None:
+            ghost_button(header.right, "环境检查", self._on_check).pack(side="right")
         card = Card(self)
         card.grid(row=1, column=0, sticky="nsew", padx=30, pady=(16, 22))
         card.grid_columnconfigure(0, weight=1)

@@ -19,14 +19,17 @@ task/tool/face_cookies.pkl
 task/tool/face_url.json
 task/tool/course_name.json
 task/tool/course_process.json
+task/tool/resume_state.json
 task/tool/*.pkl
 task/record/
 task/data/
 
 # 打包与临时产物
 build/
+build_assets/
 dist/
 *.zip
 probe/
 .remote/
 .edge*/
+.assets_version

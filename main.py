@@ -32,8 +32,18 @@ from task.tool.send_wx import send_error
 from task.do_work import do_work
 from task.reading import reading
 from task.tool.disable_monitor import DisableMonitor
+from core.resume import Resume
 condition=True#用于判断是否调节倍数
 error_num=0#错误次数
+RESUME=None#断点续刷记录器，在 main() 里初始化
+
+
+def current_chapter(driver):
+    """读取当前章节标题（用于断点记录）。"""
+    try:
+        return driver.find_element(By.CLASS_NAME, 'prev_title').get_attribute('title') or ''
+    except Exception:
+        return ''
 def login_study(driver,phone_number,password):
     """
     使用指定的手机号和密码登录学习通网站。
@@ -456,6 +466,8 @@ def run(driver,choice,course_name,API,lock_screen,pass_face,video_title_choice,
     while True:
         cond=True
         delete_face_popup(driver,pass_face)
+        if RESUME is not None:
+            RESUME.touch(course_name, current_chapter(driver))
         if check_chapter_active(driver,multi_device):
             print(color.green('正在检测页面内容'), flush=True)
             page_message_dict=page_message(driver)
@@ -494,7 +506,7 @@ def run(driver,choice,course_name,API,lock_screen,pass_face,video_title_choice,
         if cond:
             print(color.green('跳转下一页'), flush=True)
             if not click_next_page(driver, pass_face):
-                break
+                return 'done' if error_num < 6 else 'error'
             # 确认
             try:
                 driver.find_element(By.XPATH, '//*[@id="mainid"]/div[1]/div/div[3]/a[2]').click()
@@ -546,10 +558,22 @@ def start_browser(browser,driver_path,speed):
 
 def main(browser, driver_path, phone_number, password, choice, course_lst,API,after_finish_question,
          lock_screen,speed, task_type,homework,pass_face,video_title_choice,discussion_choice,pass_vido,multi_device):
+    global RESUME, error_num
+    RESUME = Resume(phone_number)
+    pending = RESUME.skip_done(course_lst)
+    if not pending:
+        print(color.yellow('所有课程都已标记完成，可在「刷课日志」里点「重置断点」后再刷'), flush=True)
+        return
+    if len(pending) != len(course_lst):
+        print(color.green(f'断点续刷：本次跳过 {len(course_lst) - len(pending)} 门已完成的课程'), flush=True)
+    if RESUME.status(pending[0]) == 'running':
+        print(color.green(f'断点续刷：从上次中断的《{pending[0]}》继续'), flush=True)
     driver = start_browser(browser, driver_path,speed)
     # time.sleep(20)
     login_study(driver, phone_number, password)
-    for course_name in course_lst:
+    for course_name in pending:
+        error_num = 0
+        RESUME.touch(course_name)
         delete_record()
         choice_course(driver, course_name, speed,  task_type,phone_number)
         turn_page(driver, course_name)
@@ -569,8 +593,16 @@ def main(browser, driver_path, phone_number, password, choice, course_lst,API,af
             delete_face_popup(driver,pass_face)
             fold(driver)
             pyautogui.hotkey('ctrl', 'm')
-            run(driver, choice, course_name, API, lock_screen, pass_face,video_title_choice,discussion_choice,
-                after_finish_question,pass_vido,speed,multi_device)
+            result = run(driver, choice, course_name, API, lock_screen, pass_face,video_title_choice,discussion_choice,
+                         after_finish_question,pass_vido,speed,multi_device)
+            if result == 'done':
+                RESUME.mark_done(course_name)
+                print(color.green(f'《{course_name}》已标记完成，下次启动会自动跳过'), flush=True)
+            else:
+                RESUME.mark_error(course_name, '出错次数过多')
+        else:
+            RESUME.mark_done(course_name, '没有待完成任务点')
+            print(color.green(f'《{course_name}》没有待完成任务点，已标记完成'), flush=True)
         driver.close()
         turn_page(driver, '个人空间')
 

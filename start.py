@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -16,10 +17,12 @@ from tkinter import messagebox
 
 import customtkinter as ctk
 
+from core import resume as resume_store
 from core.config_manager import ConfigManager
 from gui import theme
 from gui.home_page import HomePage
 from gui.logs_page import ErrorPage, HelpPage, QuestionBankPage, RecordPage
+from gui.onboarding import Onboarding
 from gui.settings_page import SettingsPage
 from gui.sidebar import Sidebar
 from gui.sign_window import SignWindow
@@ -27,7 +30,59 @@ from gui.timer_window import TimerWindow
 from gui.user_notice import UserNotice
 
 APP_NAME = "学习通刷课助手"
+APP_VERSION = "1.0.0"
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def base_dir() -> str:
+    """源码运行时是项目目录；打包后是 exe 所在目录。"""
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def prepare_workdir() -> None:
+    """切到程序目录；打包版把内置的 task 资源释放到 exe 旁边。
+
+    只补缺失的文件，不覆盖用户自己的配置、记录和缓存。
+    """
+    target = base_dir()
+    os.chdir(target)
+    if not getattr(sys, "frozen", False):
+        return
+
+    source = getattr(sys, "_MEIPASS", "")
+    if not source:
+        return
+
+    marker = os.path.join(target, ".assets_version")
+    try:
+        with open(marker, "r", encoding="utf-8") as handle:
+            if handle.read().strip() == APP_VERSION:
+                return
+    except OSError:
+        pass
+
+    src_task = os.path.join(source, "task")
+    dst_task = os.path.join(target, "task")
+    if os.path.isdir(src_task):
+        for root, _dirs, files in os.walk(src_task):
+            relative = os.path.relpath(root, src_task)
+            destination = dst_task if relative == "." else os.path.join(dst_task, relative)
+            os.makedirs(destination, exist_ok=True)
+            for name in files:
+                src_file = os.path.join(root, name)
+                dst_file = os.path.join(destination, name)
+                if not os.path.exists(dst_file):
+                    try:
+                        shutil.copy2(src_file, dst_file)
+                    except OSError:
+                        pass
+    try:
+        with open(marker, "w", encoding="utf-8") as handle:
+            handle.write(APP_VERSION)
+    except OSError:
+        pass
 
 
 def _setup_logging() -> None:
@@ -91,6 +146,8 @@ class App:
         self._refresh_static()
         if self.account.get("user_notice", "True") == "True":
             self.show_notice()
+        elif not self.account.get("onboarded"):
+            self.root.after(400, self.show_onboarding)
         self._tick()
 
     # ------------------------------------------------------------------
@@ -146,7 +203,7 @@ class App:
                                  "章节测验的提交结果")
         self.bank = QuestionBankPage(self.container, self.config)
         self.errors_page = ErrorPage(self.container)
-        self.help_page = HelpPage(self.container, self.config)
+        self.help_page = HelpPage(self.container, self.config, self.show_onboarding)
         self.settings_page = SettingsPage(self.container, self.config,
                                           self.on_settings_saved,
                                           self.open_timer, self.timer_text)
@@ -200,9 +257,24 @@ class App:
         course = (account.get("cour") or [""])[0]
         done, total = self._course_process(course)
         self.home.set_course(course, done, total, account.get("task_type", "章节"))
+        self.home.set_resume(self._resume_text(course, account.get("phone_number", "")))
         self.home.set_metrics(done=0, elapsed=0, errors=0)
         self.home.set_chips(self.timer_active, self._chip_text(),
                             bool(account.get("multi_device")))
+
+    def _resume_text(self, course: str, phone: str = "") -> str:
+        info = resume_store.snapshot(phone or self.account.get("phone_number", "")).get(course, {})
+        status = info.get("status", "")
+        if status == "done":
+            return "已完成"
+        if info.get("chapter"):
+            updated = (info.get("updated_at") or "")[5:16]
+            return f"{info['chapter'][:14]} · {updated}"
+        if status == "running":
+            return "上次中断"
+        if status == "error":
+            return "上次出错"
+        return "未开始"
 
     def _cache_files(self) -> list[str]:
         folder = os.path.join("task", "record")
@@ -239,6 +311,8 @@ class App:
 
         if self._tick_count % 5 == 0:
             self.home.set_cache(len(self._cache_files()))
+            self.home.set_resume(self._resume_text(
+                self._current_course(), self.account.get("phone_number", "")))
         self.home.set_chips(self.timer_active, self._chip_text(),
                             bool(self.account.get("multi_device")))
         self.root.after(1000, self._tick)
@@ -271,6 +345,18 @@ class App:
         if self.running:
             return
         self.account = account
+        phone = account.get("phone_number", "")
+        courses = account.get("cour") or []
+        snapshot = resume_store.snapshot(phone)
+        if courses and all(snapshot.get(name, {}).get("status") == "done" for name in courses):
+            if not messagebox.askyesno(
+                    "课程都已标记完成",
+                    "这些课程都已标记完成。要重置断点、从头再刷一遍吗？\n\n"
+                    "选「否」就保持现状，不会启动。"):
+                return
+            resume_store.reset(phone)
+            self._refresh_static()
+            self.log("已重置全部断点，将重新开始", "warn")
         self.running = True
         self.started_at = time.time()
         self.errors = 0
@@ -307,7 +393,10 @@ class App:
         self.config.save_account(self.account)
 
     def run_program(self, course: str | None = None):
-        command = self.account.get("file_name") or [sys.executable, "main.py"]
+        if getattr(sys, "frozen", False):
+            command = [sys.executable, "--worker"]
+        else:
+            command = self.account.get("file_name") or [sys.executable, "main.py"]
         env = dict(os.environ, PYTHONIOENCODING="utf-8")
         try:
             proc = subprocess.Popen(command, stdout=subprocess.PIPE,
@@ -352,6 +441,18 @@ class App:
             except Exception:
                 pass
             self.processes.pop(proc.pid, None)
+            if not self.processes:
+                self.root.after(0, self._worker_finished)
+
+    def _worker_finished(self) -> None:
+        """所有刷课进程退出后，把界面状态复位（避免停在「运行中」）。"""
+        if self.processes:
+            return
+        if self.running:
+            self.running = False
+            self.home.set_running(False)
+            self.log("刷课进程已结束", "warn")
+        self._refresh_static()
 
     def stop(self) -> None:
         if not self.running and not self.processes:
@@ -423,6 +524,14 @@ class App:
         account["user_notice"] = "False"
         self.config.save_account(account)
         self.account = account
+        if not account.get("onboarded"):
+            self.root.after(300, self.show_onboarding)
+
+    def show_onboarding(self) -> None:
+        Onboarding(self.root, self.config, self._onboarding_settings).show()
+
+    def _onboarding_settings(self) -> None:
+        self.show_page("settings")
 
     def on_close(self) -> None:
         self.stop()
@@ -430,7 +539,14 @@ class App:
 
 
 if __name__ == "__main__":
-    app = App()
-    if len(sys.argv) > 1:
-        app.show_page(sys.argv[1])
+    prepare_workdir()
+    if "--worker" in sys.argv:
+        import main as worker
+
+        worker.run_main()
+    else:
+        app = App()
+        for arg in sys.argv[1:]:
+            if arg in app.pages:
+                app.show_page(arg)
     app.root.mainloop()

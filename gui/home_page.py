@@ -173,6 +173,8 @@ class HomePage(ctk.CTkFrame):
         SectionTitle(quick, "快捷").pack(anchor="w", padx=18, pady=(16, 2))
         self._kv_version = KVRow(quick, "版本", "-")
         self._kv_version.pack(fill="x", padx=18, pady=(8, 0))
+        self._kv_resume = KVRow(quick, "断点", "未开始")
+        self._kv_resume.pack(fill="x", padx=18, pady=(8, 0))
         self._kv_cache = KVRow(quick, "题目缓存", "0 条")
         self._kv_cache.pack(fill="x", padx=18, pady=(8, 14))
         return col
@@ -240,6 +242,9 @@ class HomePage(ctk.CTkFrame):
 
     def set_version(self, version: str) -> None:
         self._kv_version.set(version)
+
+    def set_resume(self, text: str) -> None:
+        self._kv_resume.set(text)
 
     def set_cache(self, count: int) -> None:
         self._kv_cache.set(f"{count} 条")
