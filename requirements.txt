@@ -1,4 +1,4 @@
-# Xuexitong_shuake_mod1 依赖
+# 课业助手 依赖
 # 安装: pip install -r requirements.txt
 
 customtkinter>=5.2.0
@@ -9,3 +9,4 @@ Pillow>=9.0.0
 colorama>=0.4.6
 fonttools>=4.0.0
 openai>=1.0.0
+pycryptodome>=3.19.0

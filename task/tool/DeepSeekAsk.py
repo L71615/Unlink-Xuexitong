@@ -49,14 +49,18 @@ def DeepSeekAsk(API_KEY, title ,_type):
 
     if 'sk-' in API_KEY:
         message = {"role": "user", "content": prompt}
-        client = OpenAI(api_key=API_KEY, base_url="https://api.deepseek.com")
+        client = OpenAI(api_key=API_KEY, base_url="https://api.deepseek.com",
+                        timeout=30, max_retries=1)
         response = client.chat.completions.create(
             model=random.choice(['deepseek-v4-flash','deepseek-v4-pro']),
             messages=[message],
             temperature=1.3,
             stream=False
         )
-        answer = response.choices[0].message.content
+        answer = (response.choices[0].message.content or "").strip()
+        if not answer:
+            print(color.red('DeepSeek 返回了空内容'), flush=True)
+            return '[]'
     else:
         print(color.red('请输入正确的deepseek API_KEY'), flush=True)
         return '[]'

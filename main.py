@@ -20,7 +20,8 @@ from selenium.webdriver.common.by import By
 from selenium import webdriver
 
 from task.tool.common import save_process
-from task.tool.face import get_cookie,auto_login_with_cookies,delete_face_popup
+from task.tool.face import get_cookie,auto_login_with_cookies,delete_face_popup,FaceRequired
+from task.tool.speed_control import apply_speed
 from task.finish_dicussion import finish_discussion
 from task.play_audio import play_audio
 from task.tool import color
@@ -33,7 +34,6 @@ from task.do_work import do_work
 from task.reading import reading
 from task.tool.disable_monitor import DisableMonitor
 from core.resume import Resume
-condition=True#用于判断是否调节倍数
 error_num=0#错误次数
 RESUME=None#断点续刷记录器，在 main() 里初始化
 
@@ -333,24 +333,8 @@ def fold(driver):
         pass
 
 def set_speed(speed,driver):
-    global condition
-    if not condition:
-        return
-    print(color.blue(f'调节倍数为：{speed}X'), flush=True)
-    try:
-        speed=int(speed)-1
-        # body = driver.find_element(By.TAG_NAME, 'div')
-        # body.click()
-        for i in range(int(speed)*10):
-            pyautogui.press('d')
-            action=ActionChains(driver)
-            action.send_keys('d').perform()
-            time.sleep(0.1)
-        print(color.green('调节成功'), flush=True)
-        condition=False
-    except Exception as e:
-        print(color.yellow(f'调节失败{e}'), flush=True)
-        condition=True
+    """按实际 playbackRate 校准倍速（每个视频都会重新调用）。"""
+    return apply_speed(driver, speed)
 
 def page_message(driver):
     """检测页面内容类型，返回包含视频、PPT、测验、直播、讨论、音频、阅读的字典"""
@@ -463,59 +447,65 @@ def delete_record():
 
 def run(driver,choice,course_name,API,lock_screen,pass_face,video_title_choice,
         discussion_choice,after_finish_question,pass_vido,speed,multi_device):
-    while True:
-        cond=True
-        delete_face_popup(driver,pass_face)
-        if RESUME is not None:
-            RESUME.touch(course_name, current_chapter(driver))
-        if check_chapter_active(driver,multi_device):
-            print(color.green('正在检测页面内容'), flush=True)
-            page_message_dict=page_message(driver)
-            if len(page_message_dict)==0:
-                print(color.red('该页面无法识别'),flush=True)
-            else:
-                print(color.green(f'该页面含有{list(page_message_dict.keys())}'),flush=True)
-                if 'ppt' in page_message_dict.keys():
-                    __ppt(driver,course_name)
-                if '直播' in page_message_dict.keys():
-                    watch_live(driver,page_message_dict['直播'],course_name)
-                if '音频' in page_message_dict.keys():
-                    play_audio(driver,page_message_dict['音频'],course_name)
-                if '讨论' in page_message_dict.keys():
-                    if discussion_choice!='跳过讨论':
-                        finish_discussion(driver,API,page_message_dict['讨论'],discussion_choice,course_name)
-                    else:
-                        print(color.yellow(f'您已选择{discussion_choice}'), flush=True)
-
-                if '阅读' in page_message_dict.keys():
-                    reading(driver,page_message_dict['阅读'],course_name)
-                if '视频' in page_message_dict.keys():
-                    try:
-                        study_page(driver,course_name,lock_screen,API,video_title_choice,pass_vido,speed,pass_face)
-                    except Exception as e:
-                        driver.refresh()
-                        print(color.red('出错了，刷新一下'),flush=True)
-                        cond=False
-                if '测验' in page_message_dict.keys():
-                    if choice!='不刷题':
-                        finish_quiz(driver, course_name, API, choice,after_finish_question)
-                    else:
-                        print(color.yellow('您已选择不刷题，即将跳过测试题'),flush=True)
-            delete_record()
-        driver.switch_to.default_content()
-        if cond:
-            print(color.green('跳转下一页'), flush=True)
-            if not click_next_page(driver, pass_face):
-                return 'done' if error_num < 6 else 'error'
-            # 确认
-            try:
-                driver.find_element(By.XPATH, '//*[@id="mainid"]/div[1]/div/div[3]/a[2]').click()
-            except:
-                pass
-        else:
+    try:
+        while True:
+            cond=True
             delete_face_popup(driver,pass_face)
-            fold(driver)
-        time.sleep(1)
+            if RESUME is not None:
+                RESUME.touch(course_name, current_chapter(driver))
+            if check_chapter_active(driver,multi_device):
+                print(color.green('正在检测页面内容'), flush=True)
+                page_message_dict=page_message(driver)
+                if len(page_message_dict)==0:
+                    print(color.red('该页面无法识别'),flush=True)
+                else:
+                    print(color.green(f'该页面含有{list(page_message_dict.keys())}'),flush=True)
+                    if 'ppt' in page_message_dict.keys():
+                        __ppt(driver,course_name)
+                    if '直播' in page_message_dict.keys():
+                        watch_live(driver,page_message_dict['直播'],course_name)
+                    if '音频' in page_message_dict.keys():
+                        play_audio(driver,page_message_dict['音频'],course_name)
+                    if '讨论' in page_message_dict.keys():
+                        if discussion_choice!='跳过讨论':
+                            finish_discussion(driver,API,page_message_dict['讨论'],discussion_choice,course_name)
+                        else:
+                            print(color.yellow(f'您已选择{discussion_choice}'), flush=True)
+
+                    if '阅读' in page_message_dict.keys():
+                        reading(driver,page_message_dict['阅读'],course_name)
+                    if '视频' in page_message_dict.keys():
+                        try:
+                            study_page(driver,course_name,lock_screen,API,video_title_choice,pass_vido,speed,pass_face)
+                        except FaceRequired:
+                            raise
+                        except Exception as e:
+                            driver.refresh()
+                            print(color.red('出错了，刷新一下'),flush=True)
+                            cond=False
+                    if '测验' in page_message_dict.keys():
+                        if choice!='不刷题':
+                            finish_quiz(driver, course_name, API, choice,after_finish_question)
+                        else:
+                            print(color.yellow('您已选择不刷题，即将跳过测试题'),flush=True)
+                delete_record()
+            driver.switch_to.default_content()
+            if cond:
+                print(color.green('跳转下一页'), flush=True)
+                if not click_next_page(driver, pass_face):
+                    return 'done' if error_num < 6 else 'error'
+                # 确认
+                try:
+                    driver.find_element(By.XPATH, '//*[@id="mainid"]/div[1]/div/div[3]/a[2]').click()
+                except:
+                    pass
+            else:
+                delete_face_popup(driver,pass_face)
+                fold(driver)
+            time.sleep(1)
+    except FaceRequired:
+        print(color.red('需要本人完成人脸采集，已停止本课程'), flush=True)
+        return 'face'
 
 def start_browser(browser,driver_path,speed):
     print(color.green('启动浏览器中...'), flush=True)
@@ -578,7 +568,14 @@ def main(browser, driver_path, phone_number, password, choice, course_lst,API,af
         choice_course(driver, course_name, speed,  task_type,phone_number)
         turn_page(driver, course_name)
         experience(driver)
-        delete_face_popup(driver,pass_face,course_name)
+        try:
+            delete_face_popup(driver,pass_face,course_name)
+        except FaceRequired:
+            print(color.red(f'《{course_name}》需要本人完成人脸采集，已跳过该课程'), flush=True)
+            RESUME.mark_error(course_name, '需要本人完成人脸采集')
+            driver.close()
+            turn_page(driver, '个人空间')
+            continue
 
         if find_mission(driver,task_type,speed,course_name):
             if task_type=='作业':
@@ -590,7 +587,14 @@ def main(browser, driver_path, phone_number, password, choice, course_lst,API,af
                 monitor = DisableMonitor(driver)
                 monitor.enable()
 
-            delete_face_popup(driver,pass_face)
+            try:
+                delete_face_popup(driver,pass_face)
+            except FaceRequired:
+                print(color.red(f'《{course_name}》需要本人完成人脸采集，已跳过该课程'), flush=True)
+                RESUME.mark_error(course_name, '需要本人完成人脸采集')
+                driver.close()
+                turn_page(driver, '个人空间')
+                continue
             fold(driver)
             pyautogui.hotkey('ctrl', 'm')
             result = run(driver, choice, course_name, API, lock_screen, pass_face,video_title_choice,discussion_choice,
@@ -598,6 +602,9 @@ def main(browser, driver_path, phone_number, password, choice, course_lst,API,af
             if result == 'done':
                 RESUME.mark_done(course_name)
                 print(color.green(f'《{course_name}》已标记完成，下次启动会自动跳过'), flush=True)
+            elif result == 'face':
+                RESUME.mark_error(course_name, '需要本人完成人脸采集')
+                print(color.red(f'《{course_name}》需要本人完成人脸采集，已跳过该课程'), flush=True)
             else:
                 RESUME.mark_error(course_name, '出错次数过多')
         else:

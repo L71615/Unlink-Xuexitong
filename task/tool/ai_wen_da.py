@@ -11,6 +11,7 @@ import os
 import asyncio
 import ast
 from task.tool.DeepSeekAsk import DeepSeekAsk
+from task.tool.answer_match import match_indices
 
 
 @dataclass
@@ -470,34 +471,9 @@ class AnswerMatcher:
         return re.sub('<[^<]+?>', '', html)
 
     def match_answer(self, answers: List[str], question: Question) -> List[int]:
-        """匹配答案和选项"""
-        options=question.options
-        finally_options = []
-        if len(answers) == 1 and question.type == '1':
-            answers = answers[0]
-        for answer in answers:
-            matched_indices=None
-            option_scores = []
-            num=len(options)
-            if answer in ['A', 'B', 'C', 'D', 'E', 'F', 'G','H'][:num]:
-                dit = {'A': 0, 'B': 1, 'C': 2, 'D': 3, 'E': 4, 'F': 5, 'G': 6, 'H': 7}
-                matched_indices = dit.get(answer, None)
-            else:
-                for i, option in enumerate(options):
-                    similarity = self._calculate_similarity(answer, option)
-                    # print(i, option, similarity,flush=True)
-                    if similarity >= 0.4:
-                        option_scores.append((i, similarity))
-                    if answer.lower() in option or option in answer.lower():
-                        matched_indices=i
-                        break
-                if matched_indices is None:
-                    if not option_scores:
-                      break
-                    option_scores.sort(key=lambda x: x[1], reverse=True)
-                    matched_indices = option_scores[0][0]
-            finally_options.append(matched_indices)
-        return finally_options
+        """匹配答案和选项：字母、选项原文、判断题都交给统一匹配器"""
+        type_name = {'0': '单选题', '1': '多选题', '3': '判断题'}.get(question.type, '')
+        return match_indices(answers, question.options, type_name)
 
 
     def _calculate_similarity(self, str1: str, str2: str) -> float:
@@ -543,21 +519,17 @@ class AnswerMatcher:
             return {'res': answer_results, 'haveAnswer': False}
 
     def _match_choice_questions(self, answers: List[AnswerResult], question: Question) -> Dict[str, Any]:
-        """匹配选择题"""
-        best_answer = None
-
-        answer_result = answers[0]
-        matched_indices = self.match_answer(answer_result.answer, question)
-        best_answer = answer_result
-
-        if len(matched_indices) > 0:
-            return {
-                'res': answers,
-                'form': best_answer,
-                'haveAnswer': True,
-                'matchedIndices': matched_indices,
-                'answerType': 'choice'
-            }
+        """匹配选择题：依次尝试每个答案源，第一个能对上选项的就用"""
+        for answer_result in answers:
+            matched_indices = self.match_answer(answer_result.answer, question)
+            if matched_indices:
+                return {
+                    'res': answers,
+                    'form': answer_result,
+                    'haveAnswer': True,
+                    'matchedIndices': matched_indices,
+                    'answerType': 'choice'
+                }
 
         return {'res': answers, 'haveAnswer': False}
 
@@ -623,11 +595,21 @@ class AutoAnswer:
         """使用DeepSeek API获取答案"""
         start_time = time.time()
         typ_dict = {'0': '单选题', '1': '多选题', '2': '填空题', '3': '判断题', '9': '简答题'}
-        if question.type  in ['2','9']:
-            title="【" + typ_dict[question.type] + "】" + question.question
+        question_type = typ_dict.get(question.type, '简答题')
+        if question.type in ['2', '9']:
+            title = "【" + question_type + "】" + question.question
         else:
-            title = "【" + typ_dict[question.type] + "】" + question.question + str(question.options)
-        answer = DeepSeekAsk(api, title,typ_dict[question.type])
+            title = "【" + question_type + "】" + question.question + str(question.options)
+        try:
+            answer = DeepSeekAsk(api, title, question_type)
+        except Exception as error:
+            print(f"DeepSeek 请求失败：{error}", flush=True)
+            return [AnswerResult(
+                form="Deepseek",
+                answer=[],
+                duration=int((time.time() - start_time) * 1000),
+                error=error
+            )]
         if type(answer) is str:
             try:
                 answer = ast.literal_eval(answer)  # 转换为列表

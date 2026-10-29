@@ -199,7 +199,7 @@ class SettingsPage(ctk.CTkFrame):
                   text_button(self.brush, "显示", self._toggle_api, height=28))
 
         self.switch_face = _switch(self.brush)
-        self._row(self.brush, 6, "跳过人脸", self.switch_face)
+        self._row(self.brush, 6, "自动处理人脸", self.switch_face)
         self.switch_multi = _switch(self.brush, command=self._on_multi_warn)
         self._row(self.brush, 7, "多端学习", self.switch_multi)
         self.switch_skip = _switch(self.brush, command=self._on_skip_video)

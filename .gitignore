@@ -20,6 +20,7 @@ task/tool/face_url.json
 task/tool/course_name.json
 task/tool/course_process.json
 task/tool/resume_state.json
+task/tool/cour_backup.json
 task/tool/*.pkl
 task/record/
 task/data/

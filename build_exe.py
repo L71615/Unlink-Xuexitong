@@ -5,7 +5,7 @@
     python build_exe.py
 
 产物：
-    dist/UnlinkXuexitong.exe
+    dist/CourseHelper.exe
 
 注意：只收集运行需要的图片、帮助文档、驱动和扩展，不会把
 account_info.json、刷课记录、日志、缓存打进包里。
@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-APP_NAME = "UnlinkXuexitong"
+APP_NAME = "CourseHelper"
 APP_VERSION = "1.0.0"
 ASSETS = ROOT / "build_assets"
 
@@ -48,9 +48,9 @@ def make_icon(path: Path) -> None:
         font = ImageFont.truetype(r"C:\Windows\Fonts\msyhbd.ttc", 148, index=0)
     except OSError:
         font = ImageFont.load_default()
-    left, top, right, bottom = draw.textbbox((0, 0), "学", font=font)
+    left, top, right, bottom = draw.textbbox((0, 0), "课", font=font)
     draw.text(((size - (right - left)) / 2 - left, (size - (bottom - top)) / 2 - top),
-              "学", font=font, fill="#FFFFFF")
+              "课", font=font, fill="#FFFFFF")
     image.save(path, sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])
 
 
@@ -70,11 +70,11 @@ def make_version_file(path: Path) -> None:
     StringFileInfo([
       StringTable('080404b0', [
         StringStruct('CompanyName', 'L71615'),
-        StringStruct('FileDescription', 'Xuexitong Helper'),
+        StringStruct('FileDescription', '课业助手'),
         StringStruct('FileVersion', '1.0.0'),
-        StringStruct('InternalName', 'UnlinkXuexitong'),
-        StringStruct('OriginalFilename', 'UnlinkXuexitong.exe'),
-        StringStruct('ProductName', 'Xuexitong Helper'),
+        StringStruct('InternalName', 'CourseHelper'),
+        StringStruct('OriginalFilename', 'CourseHelper.exe'),
+        StringStruct('ProductName', '课业助手'),
         StringStruct('ProductVersion', '1.0.0')
       ])
     ]),
@@ -142,6 +142,9 @@ def main() -> int:
         "--hidden-import", "main",
         "--hidden-import", "task",
         "--hidden-import", "task.xxt",
+        "--hidden-import", "Crypto",
+        "--hidden-import", "Crypto.Cipher",
+        "--hidden-import", "Crypto.Cipher.AES",
         *sum((["--exclude-module", name] for name in EXCLUDES), []),
         "start.py",
     ]

@@ -4,14 +4,13 @@
 # For more information, see the LICENSE file in the root directory of this project.
 import json
 import random
-import re
 from selenium.common import  NoAlertPresentException
 import time
-import ast
 
 from selenium.webdriver.common.action_chains import ActionChains
 
 from task.tool.DeepSeekAsk import DeepSeekAsk
+from task.tool.answer_match import match_indices
 from task.tool import color
 import pyautogui
 from selenium.webdriver.common.by import By
@@ -19,6 +18,7 @@ import itertools
 
 from task.tool.common import save_record
 from task.tool.face import delete_face_popup
+from task.tool.speed_control import apply_speed
 
 drag_progress_condition = True
 
@@ -68,52 +68,9 @@ QUIZ_WAIT = 1.2         # 每次提交后等待页面反馈的秒数
 QUIZ_MAX_ATTEMPTS = 12  # 同一道题最多提交几次，防止无限循环（4 选项多选共 11 种组合）
 
 
-def _norm_text(text):
-    """去掉空白和标点，方便把 AI 答案和选项文本对齐"""
-    return re.sub(r'[\s\.、,，;；:：()（）\[\]【】"\'“”‘’]', '', text or '')
-
-
-def _answer_list(answer):
-    """把 DeepSeek 返回的字符串或列表统一成字符串列表"""
-    if isinstance(answer, str):
-        try:
-            value = ast.literal_eval(answer)
-        except Exception:
-            value = [answer]
-    else:
-        value = answer
-    if not isinstance(value, (list, tuple, set)):
-        value = [value]
-    return [str(item).strip() for item in value if str(item).strip()]
-
-
-def _answer_indices(answer, option_texts):
+def _answer_indices(answer, option_texts, question_type=''):
     """把「B」或者选项原文换算成选项下标，匹配不到时返回空列表"""
-    letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-    indices = []
-    for item in _answer_list(answer):
-        key = _norm_text(item).upper()
-        if not key:
-            continue
-        hit = None
-        if len(key) == 1 and key in letters[:len(option_texts)]:
-            hit = letters.index(key)
-        elif key and all(ch in letters[:len(option_texts)] for ch in key):
-            # DeepSeek 有时把多选题答案连写成 "AB"/"ACD"
-            for ch in key:
-                index = letters.index(ch)
-                if index not in indices:
-                    indices.append(index)
-            continue
-        else:
-            for index, text in enumerate(option_texts):
-                normalized = _norm_text(text).upper()
-                if normalized and (key in normalized or normalized in key):
-                    hit = index
-                    break
-        if hit is not None and hit not in indices:
-            indices.append(hit)
-    return indices
+    return match_indices(answer, option_texts, question_type)
 
 
 def _quiz_popup(driver):
@@ -307,7 +264,9 @@ def check_video_question(driver,API,video_title_choice):
     ai_indices = []
     if video_title_choice=='DeepSeek AI':
         answer = get_answer(API,question_title+'\n'+str(option_texts),question_type)
-        ai_indices = _answer_indices(answer, option_texts)
+        ai_indices = _answer_indices(answer, option_texts, question_type)
+        if question_type != '多选题' and len(ai_indices) > 1:
+            ai_indices = ai_indices[:1]
         if ai_indices:
             print(color.blue(f'AI 给出的答案：{[option_texts[index] for index in ai_indices]}'),
                   flush=True)
@@ -523,6 +482,12 @@ def study_page(driver,course_name,lock_screen,API,video_title_choice,pass_vido,s
             delete_face_popup(driver,pass_face)
             driver.switch_to.frame('iframe')
             driver.switch_to.frame(vido_iframe)
+
+            # 每个视频都按实际 playbackRate 重新校准，平台限速时不会白按
+            try:
+                apply_speed(driver, speed)
+            except Exception as error:
+                print(color.yellow(f'倍速校准跳过：{error}'), flush=True)
 
             try:
                 element=driver.find_element(By.CLASS_NAME,'writeNote_vid_blue')

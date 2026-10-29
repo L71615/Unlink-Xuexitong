@@ -23,7 +23,7 @@ GROUPS = (
 
 
 class Sidebar(ctk.CTkFrame):
-    def __init__(self, master, version: str, on_select, **kwargs):
+    def __init__(self, master, version: str, on_select, name: str = "课业助手", **kwargs):
         kwargs.setdefault("width", 224)
         kwargs.setdefault("fg_color", theme.PANEL)
         kwargs.setdefault("corner_radius", 0)
@@ -31,6 +31,7 @@ class Sidebar(ctk.CTkFrame):
         self.pack_propagate(False)
         self.grid_propagate(False)
         self._on_select = on_select
+        self._name = name
         self._items: dict[str, NavItem] = {}
 
         # 右侧 1px 分隔线
@@ -52,10 +53,10 @@ class Sidebar(ctk.CTkFrame):
                             fg_color=theme.accent())
         logo.pack(side="left")
         logo.pack_propagate(False)
-        ctk.CTkLabel(logo, text="学", font=theme.font(12, "bold"),
+        ctk.CTkLabel(logo, text="课", font=theme.font(12, "bold"),
                      text_color="#FFFFFF").place(relx=0.5, rely=0.5, anchor="center")
 
-        ctk.CTkLabel(row, text="学习通刷课助手", font=theme.font(13, "bold"),
+        ctk.CTkLabel(row, text=self._name, font=theme.font(13, "bold"),
                      text_color=theme.TEXT).pack(side="left", padx=(10, 0))
         ctk.CTkLabel(row, text=version, font=theme.font(10),
                      text_color=theme.FAINT).pack(side="right")

@@ -65,23 +65,27 @@ class LogView(ctk.CTkFrame):
 
 
 class HomePage(ctk.CTkFrame):
-    def __init__(self, master, on_start, on_sign, on_stop, on_clear_log, **kwargs):
+    def __init__(self, master, on_start, on_sign, on_stop, on_clear_log,
+                 on_retry=None, on_dismiss=None, **kwargs):
         kwargs.setdefault("fg_color", theme.BG)
         super().__init__(master, **kwargs)
         self._on_start = on_start
         self._on_sign = on_sign
         self._on_stop = on_stop
         self._on_clear_log = on_clear_log
+        self._on_retry = on_retry
+        self._on_dismiss = on_dismiss
         self._running = False
         self._build()
 
     # ------------------------------------------------------------------
     def _build(self) -> None:
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(2, weight=1)
+        self.grid_rowconfigure(3, weight=1)
 
         self._build_header()
         self._build_cards()
+        self._build_pending()
         self._build_log()
 
     def _build_header(self) -> None:
@@ -179,9 +183,22 @@ class HomePage(ctk.CTkFrame):
         self._kv_cache.pack(fill="x", padx=18, pady=(8, 14))
         return col
 
+    def _build_pending(self) -> None:
+        card = Card(self)
+        card.grid(row=2, column=0, sticky="ew", padx=30, pady=(16, 0))
+        card.grid_columnconfigure(0, weight=1)
+        head = ctk.CTkFrame(card, fg_color="transparent")
+        head.grid(row=0, column=0, sticky="ew", padx=18, pady=(14, 4))
+        SectionTitle(head, "待处理课程").pack(side="left")
+        Hint(head, "上次中断或出错，可以只重试这一门").pack(side="right")
+        self._pending_rows = ctk.CTkFrame(card, fg_color="transparent")
+        self._pending_rows.grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 14))
+        self._pending_card = card
+        card.grid_remove()
+
     def _build_log(self) -> None:
         card = Card(self)
-        card.grid(row=2, column=0, sticky="nsew", padx=30, pady=(16, 22))
+        card.grid(row=3, column=0, sticky="nsew", padx=30, pady=(16, 22))
         card.grid_columnconfigure(0, weight=1)
         card.grid_rowconfigure(1, weight=1)
 
@@ -198,6 +215,30 @@ class HomePage(ctk.CTkFrame):
     # ------------------------------------------------------------------
     # 对外接口
     # ------------------------------------------------------------------
+    def set_pending(self, items) -> None:
+        """items: [(课程名, 状态文字), ...]；为空时整张卡片收起。"""
+        for child in self._pending_rows.winfo_children():
+            child.destroy()
+        items = list(items or [])
+        if not items:
+            self._pending_card.grid_remove()
+            return
+        self._pending_card.grid()
+        for course, status in items:
+            row = ctk.CTkFrame(self._pending_rows, fg_color="transparent")
+            row.pack(fill="x", pady=3)
+            ctk.CTkLabel(row, text=course, font=theme.font(11, "bold"),
+                         text_color=theme.TEXT, anchor="w").pack(
+                side="left", fill="x", expand=True)
+            ctk.CTkLabel(row, text=status, font=theme.font(10),
+                         text_color=theme.WARN, width=64).pack(side="left")
+            if self._on_retry is not None:
+                ghost_button(row, "重试", lambda c=course: self._on_retry(c),
+                             height=26).pack(side="left", padx=(8, 0))
+            if self._on_dismiss is not None:
+                text_button(row, "忽略", lambda c=course: self._on_dismiss(c),
+                            height=26).pack(side="left", padx=(4, 0))
+
     def set_course(self, name: str, done: int = 0, total: int = 0,
                    task_type: str = "章节") -> None:
         self._course_name.configure(text=name or "—")

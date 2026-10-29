@@ -5,6 +5,7 @@
 import random
 import time
 import re
+import ast
 import asyncio
 import traceback
 
@@ -17,6 +18,8 @@ from task.tool import color
 import sys
 import io
 from task.tool.ai_wen_da import main,AnswerAPI,Question
+from task.tool.answer_match import (answer_text, match_indices, split_batch,
+                                    split_blanks, to_items)
 from task.tool.DeepSeekAsk import DeepSeekAsk
 from task.tool.send_wx import send_error
 
@@ -79,14 +82,24 @@ class Answer:
         else:
             self.get_title_option()
             print(color.red('正在搜索中，请耐心等待...'))
+            if not self.questionList0:
+                print(color.red('没有识别到题目，跳过本次测验'), flush=True)
+                return
             if self.API_KEY=='sk-open_deepseek':
-                self.no_answer_dit = self.all_title_dit
+                self.no_answer_dit = dict(self.all_title_dit)
             else:
-                self.use_ai_wen_da()
-                for i, answer in self.num_answer_dit.items():
-                    if not answer:
-                        self.no_answer_dit[i] = self.all_title_dit[i]
-            self.use_deepseek()
+                try:
+                    self.use_ai_wen_da()
+                except Exception as error:
+                    print(color.red(f'题库查询出错：{error}'), flush=True)
+                self.no_answer_dit = {
+                    index: text for index, text in self.all_title_dit.items()
+                    if not self.num_answer_dit.get(index)
+                }
+                try:
+                    self.use_deepseek()
+                except Exception as error:
+                    print(color.red(f'AI 搜题出错：{error}'), flush=True)
             if not turn_page(self.driver,'学生学习页面')=='True':
                 self.driver.switch_to.frame('iframe')
                 self.driver.switch_to.frame(self.frame)
@@ -96,7 +109,8 @@ class Answer:
                 if self.finish_title(title_num):
                     self.reword_time += 1
                 time.sleep(1)
-            self.ans_rate = self.reword_time / len(self.questionList0)
+            self.ans_rate = (self.reword_time / len(self.questionList0)
+                             if self.questionList0 else 0)
             print(self.reword_time, '/', len(self.questionList0))
             message = self.submit()
             if not message and self.times<3:
@@ -148,160 +162,213 @@ class Answer:
 
     def use_ai_wen_da(self):
         for i in self.all_title_dit.keys():
-            if self.times==0 and self.work_choice!='随机答题':
+            self.answer_list = []
+            if self.times == 0 and self.work_choice != '随机答题':
                 print(color.green('\n<===================  分隔线  ===================>\n'), flush=True)
-                try:
-                    self.answer_list = asyncio.run(
-                        main(self.questionType_list[i], self.only_title_text[i], self.num_option_dit[i], self.API_KEY,self.driver))
-                except Exception as e:
-                    print(color.red(f'第{i+1}题搜索失败：{e}'), flush=True)
-
-                if type(self.answer_list) is str:
-                    self.answer_list = eval(self.answer_list)
-                if not self.answer_list:
+                for attempt in range(2):
                     try:
-                        self.answer_list = asyncio.run(
-                            main(self.questionType_list[i], self.only_title_text[i], self.num_option_dit[i], self.API_KEY,self.driver))
-                    except Exception as e:
-                        print(color.red(f'第{i+1}题搜索失败：{e}'), flush=True)
-                    if type(self.answer_list) is str:
-                        self.answer_list = eval(self.answer_list)
-            elif self.work_choice!='随机答题':
-                self.answer_list=[]
-            elif self.work_choice=='随机答题':
-                self.answer_list=[random.choice(self.num_option_dit[i])]
-                print(color.red(f'本次采用随机答题,随机答案为：{self.answer_list}'),flush=True)
+                        result = asyncio.run(
+                            main(self.questionType_list[i], self.only_title_text[i],
+                                 self.num_option_dit[i], self.API_KEY))
+                    except Exception as error:
+                        print(color.red(f'第{i+1}题搜索失败：{error}'), flush=True)
+                        result = []
+                    if isinstance(result, str):
+                        try:
+                            result = ast.literal_eval(result)
+                        except Exception:
+                            result = [result]
+                    self.answer_list = list(result or [])
+                    if self.answer_list:
+                        break
+                    if attempt == 0:
+                        print(color.yellow(f'第{i+1}题没有搜到答案，重试一次'), flush=True)
+            elif self.work_choice == '随机答题':
+                question_type = self.questionType_list[i]
+                options = self.num_option_dit[i]
+                if question_type in ('单选题', '多选题', '判断题') and options:
+                    self.answer_list = [random.choice(options)]
+                    print(color.red(f'本次采用随机答题,随机答案为：{self.answer_list}'), flush=True)
             if not self.answer_list:
                 self.num_answer_dit[i] = []
-                # print(color.red('无答案，跳过'), flush=True)
                 continue
-            else:
-                self.num_answer_dit[i] = self.answer_list
+            self.num_answer_dit[i] = self.answer_list
 
     def use_deepseek(self):
+        keys = list(self.no_answer_dit.keys())
+        if not keys:
+            return
+        print(color.red('正在使用deepseek搜题，请耐心等待...'), flush=True)
 
-        if len(self.no_answer_dit) > 0:
+        parts = []
+        try:
+            title = '\n'.join(
+                f'{number}. {self.no_answer_dit[key]}'
+                for number, key in enumerate(keys, 1))
+            parts = split_batch(DeepSeekAsk(self.API_KEY, title, 'all'))
+        except Exception as error:
+            print(color.red(f'DeepSeek 批量搜题失败：{error}'), flush=True)
+            parts = []
 
-            print(color.red('正在使用deepseek搜题，请耐心等待...'), flush=True)
-            title = ''
-            num = 0
-            for no_answer_title in self.no_answer_dit.values():
-                title += no_answer_title
-            answers = DeepSeekAsk(self.API_KEY, title, 'all')
-            # answers='C/B/ABCD/ABCD/实体经济/'
-            parts = re.split(r'/', answers)
-            for key, no_answer_title in self.no_answer_dit.items():
-                self.num_answer_dit[key] = re.split(',', parts[num])
-                # 缓存答案
-                question = Question(
-                    type=str(self.questionType_list[key]),  # 题目类型
+        if len(parts) != len(keys):
+            if parts:
+                print(color.yellow(
+                    f'AI 返回 {len(parts)} 条答案，与题目数 {len(keys)} 不一致，改为逐题询问'),
+                    flush=True)
+            parts = []
+
+        for index, key in enumerate(keys):
+            if parts:
+                items = to_items(parts[index])
+            else:
+                try:
+                    question_type = self.questionType_list[key]
+                    if question_type == '名词解释':
+                        question_type = '简答题'
+                    items = to_items(
+                        DeepSeekAsk(self.API_KEY, self.no_answer_dit[key],
+                                    question_type))
+                except Exception as error:
+                    print(color.red(f'第{key+1}题 AI 搜题失败：{error}'), flush=True)
+                    items = []
+            self.num_answer_dit[key] = items
+            if not items:
+                print(color.yellow(f'第{key+1}题没有拿到 AI 答案，留空'), flush=True)
+                continue
+            try:
+                AnswerAPI().cache_answer(Question(
+                    type=str(self.questionType_list[key]),
                     question=self.only_title_text[key],
                     options=self.num_option_dit[key],
-                    API=self.API_KEY)
-                AnswerAPI().cache_answer(question, self.num_answer_dit[key])
-                num += 1
+                    API=self.API_KEY), items)
+            except Exception as error:
+                print(color.yellow(f'缓存答案失败：{error}'), flush=True)
 
 
     def finish_title(self, title_num):
         try:
             # 滚动到题目
             self.driver.execute_script("arguments[0].scrollIntoView();", self.questionList0[title_num])
-            # pyautogui.scroll(50)
-        except:
+        except Exception:
             pass
         print(color.green(f'正在回答第{title_num + 1}题...'), flush=True)
-        answer=self.num_answer_dit[title_num]
-        #去重
-        print(color.green(f'该题为{self.questionType_list[title_num]}，答案：{answer}'), flush=True)
-        option_num=0
+        answer = self.num_answer_dit.get(title_num) or []
+        question_type = self.questionType_list[title_num]
+        options = self.num_option_dit[title_num]
+        print(color.green(f'该题为{question_type}，答案：{answer}'), flush=True)
         try:
-            if self.questionType_list[title_num]=='单选题' or self.questionType_list[title_num]=='判断题':
-                for option in self.num_option_dit[title_num]:
-                    if answer[0] in option:
-                       break
-                    option_num+=1
-                if self.all_optionWebElementList[title_num][option_num].get_attribute('aria-checked')== 'true':
-                    print(color.red('已回答，无需重复回答'),flush=True)
+            if question_type in ('单选题', '判断题'):
+                indices = match_indices(answer, options, question_type)
+                if not indices:
+                    print(color.red('答案没能匹配到选项，跳过这题'), flush=True)
+                    return False
+                elements = self.all_optionWebElementList[title_num]
+                index = indices[0]
+                if index >= len(elements):
+                    print(color.red('选项下标越界，跳过这题'), flush=True)
+                    return False
+                element = elements[index]
+                if (element.get_attribute('aria-checked') or '').lower() == 'true':
+                    print(color.red('已回答，无需重复回答'), flush=True)
                 else:
-                    self.all_optionWebElementList[title_num][option_num].click()
-                return True
-            elif self.questionType_list[title_num] == '多选题':
-                self.answer_num=[]
-                if len(answer)==1:
-                    lst = answer[0]
-                else:
-                    lst = answer
-                for option in self.num_option_dit[title_num]:
-                    for ans in lst:
-                        if ans in option:
-                           self.answer_num .append(option_num)
-                    option_num+=1
-                self.answer_num=list(set(self.answer_num))
-                # 点击正确答案
-                for ans in self.answer_num:
-                    time.sleep(1)
-                    try:
-                        if self.all_optionWebElementList[title_num][ans].get_attribute('aria-checked')== 'true':
-                            print(color.red('已回答，无需重复回答'), flush=True)
-                        else:
-                            self.all_optionWebElementList[title_num][ans].click()
-                    except:
-                        self.all_optionWebElementList[title_num][ans].click()
+                    self._click_option(element)
                 return True
 
-            elif self.questionType_list[title_num]=='简答题' or self.questionType_list[title_num]=='论述题' or self.questionType_list[title_num]=='名词解释':
-                text_frame=self.questionList0[title_num].find_element(By.TAG_NAME,'iframe')
+            if question_type == '多选题':
+                indices = match_indices(answer, options, question_type)
+                if not indices:
+                    print(color.red('答案没能匹配到选项，跳过这题'), flush=True)
+                    return False
+                elements = self.all_optionWebElementList[title_num]
+                for index in indices:
+                    if index >= len(elements):
+                        continue
+                    element = elements[index]
+                    try:
+                        checked = (element.get_attribute('aria-checked') or '').lower() == 'true'
+                    except Exception:
+                        checked = False
+                    if checked:
+                        print(color.red('已回答，无需重复回答'), flush=True)
+                        continue
+                    self._click_option(element)
+                    time.sleep(1)
+                return True
+
+            if question_type in ('简答题', '论述题', '名词解释'):
+                text = answer_text(answer).strip()
+                if not text:
+                    print(color.red('没有可提交的文本答案'), flush=True)
+                    return False
+                text_frame = self.questionList0[title_num].find_element(By.TAG_NAME, 'iframe')
                 self.driver.switch_to.frame(text_frame)
-                p_element=self.driver.find_element(By.TAG_NAME,'p')
-                check_answer = p_element.text
-                if check_answer != '':
+                p_element = self.driver.find_element(By.TAG_NAME, 'p')
+                if p_element.text:
                     print(color.red('已回答，无需重复回答'), flush=True)
                     self.driver.switch_to.parent_frame()
                     return True
-                # self.driver.execute_script('arguments[0].innerText = arguments[1];', p_element, answer)
-                p_element.click()
-                p_element.send_keys(answer)
+                try:
+                    p_element.click()
+                except Exception:
+                    self.driver.execute_script("arguments[0].click();", p_element)
+                p_element.send_keys(text)
                 self.driver.switch_to.parent_frame()
                 return True
-            elif self.questionType_list[title_num]=='填空题':
+
+            if question_type == '填空题':
                 if self.work_choice is not None:
                     elements = self.questionList0[title_num].find_elements(By.CLASS_NAME, 'InpDIV')
                 else:
-                    elements = self.questionList0[title_num].find_elements(By.CSS_SELECTOR,
-                                                                           '[class="edui-editor-iframeholder edui-default"]')
+                    elements = self.questionList0[title_num].find_elements(
+                        By.CSS_SELECTOR, '[class="edui-editor-iframeholder edui-default"]')
                 text_frames = self.questionList0[title_num].find_elements(By.TAG_NAME, 'iframe')
-                if  len(answer)==1:
-                    answer=re.split(r' ', answer[0])
-                    print(color.red(f'修正答案：{answer}'), flush=True)
-                if len(elements)>len(answer):
-                    print(color.red('填空题答案数量少于题目数量'), flush=True)
+                if not elements:
+                    print(color.red('没有找到填空输入框，跳过这题'), flush=True)
                     return False
-                for number in range(len(elements)):
-                    self.driver.execute_script("arguments[0].click();", elements[number])
+                parts = split_blanks(answer, len(elements))
+                if not any(parts):
+                    print(color.red('没有可提交的填空答案'), flush=True)
+                    return False
+                answered = False
+                for number, element in enumerate(elements):
+                    if number >= len(text_frames):
+                        break
+                    value = parts[number] if number < len(parts) else ''
+                    self.driver.execute_script("arguments[0].click();", element)
                     self.driver.switch_to.frame(text_frames[number])
                     p_element = self.driver.find_element(By.TAG_NAME, 'p')
-                    check_answer = p_element.text
-                    if check_answer != '':
+                    if p_element.text:
                         print(color.red('已回答，无需重复回答'), flush=True)
                         self.driver.switch_to.parent_frame()
                         continue
                     try:
                         p_element.click()
-                    except:
+                    except Exception:
                         self.driver.execute_script("arguments[0].click();", p_element)
-                    try:
-                        p_element.send_keys(answer[number])
-                    except:
-                        pass
+                    if value:
+                        try:
+                            p_element.send_keys(value)
+                            answered = True
+                        except Exception:
+                            pass
                     self.driver.switch_to.parent_frame()
                     time.sleep(1)
-                return True
-            else:
-                print(color.red(f'该题为{self.questionType}，暂时无法作答'), flush=True)
-                return False
+                return answered
+
+            print(color.red(f'该题为{question_type}，暂时无法作答'), flush=True)
+            return False
         except Exception as e:
             print(color.red(f'答题时出错了{e}'), flush=True)
             return False
+
+    def _click_option(self, element):
+        try:
+            element.click()
+        except Exception:
+            try:
+                self.driver.execute_script("arguments[0].click();", element)
+            except Exception:
+                pass
 
     def submit(self):
         formatted_result = "{:.2%}".format(self.ans_rate)

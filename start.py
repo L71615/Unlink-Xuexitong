@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-"""学习通刷课助手 —— 界面主程序。"""
+"""课业助手 —— 界面主程序。"""
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -11,13 +12,14 @@ import sys
 import tempfile
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from tkinter import messagebox
 
 import customtkinter as ctk
 
 from core import resume as resume_store
+from core import selfcheck, timer_plan
 from core.config_manager import ConfigManager
 from gui import theme
 from gui.home_page import HomePage
@@ -29,9 +31,10 @@ from gui.sign_window import SignWindow
 from gui.timer_window import TimerWindow
 from gui.user_notice import UserNotice
 
-APP_NAME = "学习通刷课助手"
+APP_NAME = "课业助手"
 APP_VERSION = "1.0.0"
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+COUR_BACKUP = os.path.join("task", "tool", "cour_backup.json")
 
 
 def base_dir() -> str:
@@ -109,6 +112,7 @@ class App:
 
         self.config = ConfigManager()
         self.account = self.config.load_account() or {}
+        self._recover_cour_backup()
         self.version = self.config.get_version()
 
         theme.configure(self.account.get("font_type") or "Microsoft YaHei",
@@ -137,6 +141,10 @@ class App:
         self.timer_active = bool(self.account.get("timer_active"))
         self.timer_start = self.account.get("timer_start") or "04:00:00"
         self.timer_end = self.account.get("timer_end") or "03:00:00"
+        self._timer_end_at = None          # 本轮定时窗口的结束时间
+        self._timer_cycle = None           # 已启动过的窗口开始日期，避免重复启动
+        self._cour_backup = None           # 单门重试前的课程列表
+        self._dismissed = set()            # 本次运行里被「忽略」的待处理课程
         self._sign_window = None
         self._tick_count = 0
 
@@ -144,6 +152,7 @@ class App:
                                         self._on_timer_cancel)
         self._build()
         self._refresh_static()
+        self._run_selfcheck()
         if self.account.get("user_notice", "True") == "True":
             self.show_notice()
         elif not self.account.get("onboarded"):
@@ -174,10 +183,10 @@ class App:
                 font = ImageFont.truetype(r"C:\Windows\Fonts\msyhbd.ttc", 38, index=0)
             except Exception:
                 font = ImageFont.load_default()
-            left, top, right, bottom = draw.textbbox((0, 0), "学", font=font)
+            left, top, right, bottom = draw.textbbox((0, 0), "课", font=font)
             draw.text(((size - (right - left)) / 2 - left,
                        (size - (bottom - top)) / 2 - top),
-                      "学", font=font, fill="#FFFFFF")
+                      "课", font=font, fill="#FFFFFF")
             self._icon_photo = ImageTk.PhotoImage(image)
             self.root.iconphoto(True, self._icon_photo)
         except Exception:
@@ -187,7 +196,7 @@ class App:
         self.root.grid_columnconfigure(1, weight=1)
         self.root.grid_rowconfigure(0, weight=1)
 
-        self.sidebar = Sidebar(self.root, self.version, self.show_page)
+        self.sidebar = Sidebar(self.root, self.version, self.show_page, name=APP_NAME)
         self.sidebar.grid(row=0, column=0, sticky="ns")
 
         self.container = ctk.CTkFrame(self.root, fg_color=theme.BG, corner_radius=0)
@@ -196,7 +205,9 @@ class App:
         self.container.grid_rowconfigure(0, weight=1)
 
         self.home = HomePage(self.container, self.start, self.open_sign,
-                             self.stop, self.clear_log)
+                             self.stop, self.clear_log,
+                             on_retry=self.retry_course,
+                             on_dismiss=self.dismiss_pending)
         self.records = RecordPage(self.container, self.config, "刷课", "刷课日志",
                                   "每完成一个任务点都会记在这里")
         self.scores = RecordPage(self.container, self.config, "成绩", "测试成绩",
@@ -261,6 +272,118 @@ class App:
         self.home.set_metrics(done=0, elapsed=0, errors=0)
         self.home.set_chips(self.timer_active, self._chip_text(),
                             bool(account.get("multi_device")))
+        self.home.set_pending(self._pending_items())
+
+    def _pending_items(self) -> list[tuple[str, str]]:
+        phone = self.account.get("phone_number", "")
+        snapshot = resume_store.snapshot(phone)
+        items = []
+        for course in self._all_courses:
+            if course in self._dismissed:
+                continue
+            status = snapshot.get(course, {}).get("status")
+            if status == "running":
+                items.append((course, "上次中断"))
+            elif status == "error":
+                items.append((course, "上次出错"))
+        return items
+
+    def retry_course(self, course: str) -> None:
+        """只重试一门课：临时把课程列表换成它，结束后恢复。"""
+        if self.running:
+            return
+        account = self.config.load_account() or {}
+        courses = list(account.get("cour") or [])
+        if course not in courses:
+            return
+        if not self._save_cour_backup(courses):
+            messagebox.showerror("保存失败", "无法备份课程列表，已取消重试")
+            return
+        self._cour_backup = courses
+        account["cour"] = [course]
+        if not self.config.save_account(account):
+            self._cour_backup = None
+            self._clear_cour_backup()
+            messagebox.showerror("保存失败", "写入配置失败，请检查文件权限")
+            return
+        self.account = account
+        self._refresh_static()
+        self.start()
+        if not self.running:
+            self._restore_cour()
+            self._refresh_static()
+
+    def dismiss_pending(self, course: str) -> None:
+        self._dismissed.add(course)
+        self.home.set_pending(self._pending_items())
+
+    def _save_cour_backup(self, courses: list[str]) -> bool:
+        try:
+            os.makedirs(os.path.dirname(COUR_BACKUP), exist_ok=True)
+            with open(COUR_BACKUP, "w", encoding="utf-8") as handle:
+                json.dump(courses, handle, ensure_ascii=False)
+            return True
+        except OSError:
+            return False
+
+    def _load_cour_backup(self) -> list[str] | None:
+        try:
+            with open(COUR_BACKUP, "r", encoding="utf-8") as handle:
+                courses = json.load(handle)
+        except (OSError, ValueError):
+            return None
+        if isinstance(courses, list) and courses and all(isinstance(c, str) for c in courses):
+            return courses
+        return None
+
+    def _clear_cour_backup(self) -> None:
+        try:
+            os.remove(COUR_BACKUP)
+        except OSError:
+            pass
+
+    def _recover_cour_backup(self) -> None:
+        """上次单门重试时程序意外退出，启动时把课程列表补回去。"""
+        courses = self._load_cour_backup()
+        if not courses:
+            self._clear_cour_backup()
+            return
+        account = self.config.load_account() or {}
+        if not account:
+            return
+        account["cour"] = courses
+        if self.config.save_account(account):
+            self.account = account
+            self._clear_cour_backup()
+
+    def _restore_cour(self) -> None:
+        courses = list(self._cour_backup or self._load_cour_backup() or [])
+        if not courses:
+            return
+        account = self.config.load_account() or {}
+        account["cour"] = courses
+        if self.config.save_account(account):
+            self._cour_backup = None
+            self.account = account
+            self._all_courses = list(account.get("cour") or [])
+            self._clear_cour_backup()
+
+    def _run_selfcheck(self) -> None:
+        try:
+            results = selfcheck.run(self.account)
+        except Exception as error:  # 自检本身不能拦住启动
+            self.log(f"环境自检跳过：{error}", "warn")
+            return
+        for check in results:
+            mark = "✅" if check.ok else "⚠"
+            self.log(f"{mark} {check.name}：{check.detail}",
+                     "ok" if check.ok else "warn")
+        bad = [check for check in selfcheck.failures(results) if check.critical]
+        if not bad:
+            return
+        lines = "\n".join(f"· {check.name}：{check.detail}\n  {check.fix}" for check in bad)
+        self.root.after(800, lambda: messagebox.showwarning(
+            "环境检查未通过", f"以下项目可能影响运行：\n\n{lines}"))
 
     def _resume_text(self, course: str, phone: str = "") -> str:
         info = resume_store.snapshot(phone or self.account.get("phone_number", "")).get(course, {})
@@ -285,12 +408,34 @@ class App:
     def timer_text(self) -> str:
         if not self.timer_active:
             return "未设置定时"
-        return f"{self.timer_start} → {self.timer_end}"
+        now = datetime.now()
+        if self.running and self._timer_end_at:
+            return f"{self.timer_start} → {self.timer_end} · 运行中，{self._timer_end_at:%H:%M} 结束"
+        nxt = timer_plan.next_start(now, self.timer_start, self.timer_end)
+        if nxt is None:
+            return f"{self.timer_start} → {self.timer_end} · 时间格式无效"
+        return f"{self.timer_start} → {self.timer_end} · 下次 {nxt:%m-%d %H:%M}"
 
     def _chip_text(self) -> str:
         if not self.timer_active:
             return "定时 未开启"
-        return f"定时 {self.timer_start[:5]}–{self.timer_end[:5]}"
+        now = datetime.now()
+        if self.running:
+            if self._timer_end_at:
+                return f"定时 运行中，{self._timer_end_at:%H:%M} 结束"
+            return "定时 运行中"
+        nxt = timer_plan.next_start(now, self.timer_start, self.timer_end)
+        if nxt is None:
+            return "定时 时间无效"
+        days = (nxt.date() - now.date()).days
+        if days == 0:
+            delta = nxt - now
+            if delta <= timedelta(hours=1):
+                return f"定时 {max(delta.total_seconds(), 0) / 60:.0f} 分后"
+            return f"定时 {nxt:%H:%M}"
+        if days == 1:
+            return f"定时 明天 {nxt:%H:%M}"
+        return f"定时 {nxt:%m-%d %H:%M}"
 
     def _tick(self) -> None:
         self._tick_count += 1
@@ -302,12 +447,20 @@ class App:
             self.home.set_course(self._current_course(), done, total,
                                  self.account.get("task_type", "章节"))
 
-        now = datetime.now().strftime("%H:%M:%S")
+        now = datetime.now()
         if self.timer_active:
-            if now == self.timer_start and not self.running:
-                self.start()
-            elif now == self.timer_end and self.running:
-                self.stop()
+            if self.running:
+                if self._timer_end_at and now >= self._timer_end_at:
+                    self.log(f"定时结束：{self.timer_end}，已停止刷课", "warn")
+                    self.stop()
+            else:
+                fire, start_dt, end_dt = timer_plan.due(
+                    now, self.timer_start, self.timer_end, self._timer_cycle)
+                if fire:
+                    self._timer_cycle = start_dt.date()
+                    self._timer_end_at = end_dt
+                    self.log(f"定时启动：{self.timer_start} → {self.timer_end}", "ok")
+                    self.start(auto=True)
 
         if self._tick_count % 5 == 0:
             self.home.set_cache(len(self._cache_files()))
@@ -337,7 +490,7 @@ class App:
     # ------------------------------------------------------------------
     # 刷课
     # ------------------------------------------------------------------
-    def start(self) -> None:
+    def start(self, auto: bool = False) -> None:
         account = self.config.load_account() or {}
         if not account.get("phone_number"):
             messagebox.showerror("还没配置", "请先到「设置」里填写账号信息")
@@ -349,6 +502,9 @@ class App:
         courses = account.get("cour") or []
         snapshot = resume_store.snapshot(phone)
         if courses and all(snapshot.get(name, {}).get("status") == "done" for name in courses):
+            if auto:
+                self.log("定时到点，但所有课程都已标记完成，跳过本次启动", "warn")
+                return
             if not messagebox.askyesno(
                     "课程都已标记完成",
                     "这些课程都已标记完成。要重置断点、从头再刷一遍吗？\n\n"
@@ -357,12 +513,16 @@ class App:
             resume_store.reset(phone)
             self._refresh_static()
             self.log("已重置全部断点，将重新开始", "warn")
+        if self.timer_active and self._timer_end_at is None:
+            bounds = timer_plan.window(datetime.now(), self.timer_start, self.timer_end)
+            self._timer_end_at = bounds[1] if bounds else None
         self.running = True
         self.started_at = time.time()
         self.errors = 0
         done, _total = self._course_process(self._current_course())
         self._baseline_done = done
         self.home.set_running(True)
+        self.home.set_pending([])          # 运行中先收起待处理卡片，结束后按最新断点恢复
         self.log(f"开始刷课：{'、'.join(account.get('cour') or [])}", "ok")
         threading.Thread(target=self._launch, daemon=True).start()
 
@@ -452,12 +612,14 @@ class App:
             self.running = False
             self.home.set_running(False)
             self.log("刷课进程已结束", "warn")
+        self._restore_cour()
         self._refresh_static()
 
     def stop(self) -> None:
         if not self.running and not self.processes:
             return
         self.running = False
+        self._timer_end_at = None
         for pid, proc in list(self.processes.items()):
             try:
                 if os.name == "nt":
@@ -468,7 +630,9 @@ class App:
             except Exception:
                 pass
         self.processes.clear()
+        self._restore_cour()
         self.home.set_running(False)
+        self.home.set_pending(self._pending_items())
         self.log("已结束刷课", "warn")
 
     # ------------------------------------------------------------------
@@ -490,6 +654,8 @@ class App:
     def _on_timer_set(self, start: str, end: str) -> None:
         self.timer_start, self.timer_end = start, end
         self.timer_active = True
+        self._timer_cycle = None
+        self._timer_end_at = None
         account = self.config.load_account() or {}
         account["timer_start"] = start
         account["timer_end"] = end
@@ -501,6 +667,8 @@ class App:
 
     def _on_timer_cancel(self) -> None:
         self.timer_active = False
+        self._timer_cycle = None
+        self._timer_end_at = None
         account = self.config.load_account() or {}
         account["timer_active"] = 0
         self.config.save_account(account)
@@ -513,10 +681,12 @@ class App:
         self.timer_active = bool(account.get("timer_active"))
         self.timer_start = account.get("timer_start") or self.timer_start
         self.timer_end = account.get("timer_end") or self.timer_end
+        self._timer_cycle = None
+        self._timer_end_at = None
         self._refresh_static()
 
     def show_notice(self) -> None:
-        UserNotice(self.root, on_confirm=self._notice_done,
+        UserNotice(self.root, APP_NAME, on_confirm=self._notice_done,
                    on_cancel=self.root.destroy).show()
 
     def _notice_done(self) -> None:

@@ -7,7 +7,7 @@ import customtkinter as ctk
 from gui import theme
 from gui.widgets import primary_button, text_button
 
-NOTICE_TEXT = """欢迎使用「学习通刷课助手」
+NOTICE_TEXT = """欢迎使用「{name}」
 
 使用前请确认：
 
@@ -21,8 +21,9 @@ NOTICE_TEXT = """欢迎使用「学习通刷课助手」
 
 
 class UserNotice:
-    def __init__(self, root, on_confirm, on_cancel):
+    def __init__(self, root, name, on_confirm, on_cancel):
         self.root = root
+        self.name = name
         self.on_confirm = on_confirm
         self.on_cancel = on_cancel
         self.remaining = 5
@@ -50,7 +51,7 @@ class UserNotice:
         box = ctk.CTkTextbox(card, font=theme.font(11), fg_color="transparent",
                              border_width=0, wrap="word", text_color=theme.TEXT_SOFT)
         box.pack(fill="both", expand=True, padx=14, pady=(0, 8))
-        box.insert("end", NOTICE_TEXT)
+        box.insert("end", NOTICE_TEXT.format(name=self.name))
         box.configure(state="disabled")
 
         bar = ctk.CTkFrame(card, fg_color="transparent")

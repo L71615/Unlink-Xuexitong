@@ -20,6 +20,73 @@ import json
 import traceback
 from task.tool.send_wx import send_error
 
+class FaceRequired(Exception):
+    """需要本人扫码完成人脸采集：调用方应停止当前课程，不要刷新重试。"""
+
+
+MANUAL_SCAN_TIMEOUT = 120  # 等待本人扫码的秒数
+
+FACE_POPUP_SELECTORS = (
+    ".chapterVideoFaceMaskDiv",     # 视频弹窗
+    ".maskDiv",                     # 章节页/入口采集弹窗
+    ".chapterVideoFaceQrMaskDiv",   # 视频弹窗（旧版）
+)
+_VIDEO_FACE_SELECTORS = (".chapterVideoFaceMaskDiv", ".chapterVideoFaceQrMaskDiv")
+
+
+def _is_face_popup(element, selector):
+    """避免把页面里其他 .maskDiv 误判成人脸弹窗"""
+    if selector in _VIDEO_FACE_SELECTORS:
+        return True
+    try:
+        if element.find_elements(By.CSS_SELECTOR, "#fcqrimg"):
+            return True
+    except Exception:
+        pass
+    try:
+        return "人脸" in (element.text or "")
+    except Exception:
+        return False
+
+
+def _visible_face_popup(driver):
+    """返回 (弹窗元素, 命中的选择器)，没有则 (None, None)"""
+    for selector in FACE_POPUP_SELECTORS:
+        try:
+            for element in driver.find_elements(By.CSS_SELECTOR, selector):
+                if element.is_displayed() and _is_face_popup(element, selector):
+                    return element, selector
+        except Exception:
+            continue
+    return None, None
+
+
+def _wait_popup_gone(driver, timeout, poll=2.0):
+    """在 timeout 秒内轮询弹窗是否消失"""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _visible_face_popup(driver)[0] is None:
+            return True
+        time.sleep(min(poll, max(0.0, deadline - time.time())))
+    return _visible_face_popup(driver)[0] is None
+
+
+def wait_for_manual_scan(driver, timeout=MANUAL_SCAN_TIMEOUT, poll=2.0):
+    """等待本人用学习通 APP 扫码完成采集；弹窗消失返回 True"""
+    deadline = time.time() + timeout
+    last_report = time.time()
+    while time.time() < deadline:
+        if _visible_face_popup(driver)[0] is None:
+            return True
+        time.sleep(min(poll, max(0.0, deadline - time.time())))
+        if time.time() - last_report >= 15:
+            left = int(deadline - time.time())
+            if left > 0:
+                print(color.yellow(f'仍在等待人脸采集，剩余约 {left} 秒...'), flush=True)
+            last_report = time.time()
+    return _visible_face_popup(driver)[0] is None
+
+
 def check_face(driver,face_url,face_class='popDiv wid640 faceCollectQrPop popClass',course_name=''):
     i = 0
     while i <= 200:
@@ -295,6 +362,9 @@ class ChaoxingFaceBypass:
                  f"clazzid={all_params.get('clazzid')} "
                  f"uuid={all_params.get('uuid')} "
                  f"qrcEnc={all_params.get('qrcEnc')}")
+        print(f"[人脸] 参数: courseid={all_params.get('courseid')} "
+              f"clazzid={all_params.get('clazzid')} "
+              f"uuid={all_params.get('uuid')}", flush=True)
         return all_params
 
     # ---------------------------------------------------------- 图片处理
@@ -448,9 +518,10 @@ class ChaoxingFaceBypass:
         code = data.get("code")
         msg = data.get("msg") or data.get("message")
         ok = data.get("status")
+        print(f"[人脸] 提交返回: code={code} status={ok} msg={msg}", flush=True)
 
         if code == 0 and ok is True and msg == "通过":
-            self.log("✅ 人脸验证通过！", "INFO")
+            self.log("✅ 二维码状态已更新（不代表采集完成）", "INFO")
             return {"status": "success"}
 
         if code == -4:
@@ -551,53 +622,69 @@ class ChaoxingFaceBypass:
 
     # ------------------------------------------------------- 弹窗检测
     def wait_for_face_popup(self, condition=False) -> bool:
-        """轮询等待人脸识别弹窗出现"""
-        selectors = [
-            ".chapterVideoFaceMaskDiv",     # 新版类型 1
-            ".maskDiv",                     # 新版类型 2
-            ".chapterVideoFaceQrMaskDiv",   # 旧版
-        ]
-        if condition:
-            print("开始检测人脸弹窗", flush=True)
-            for sel in selectors:
-                try:
-                    els = self.driver.find_elements(By.CSS_SELECTOR, sel)
-                    for el in els:
-                        if el.is_displayed():
-                            print(f"检测到人脸弹窗: {sel}", flush=True)
-                            return True
-                except Exception:
-                    continue
-                time.sleep(0.5)
-            print("未检测到人脸弹窗", flush=True)
+        """检测人脸弹窗是否出现（只检测，不处理）"""
+        if not condition:
+            return False
+        print("开始检测人脸弹窗", flush=True)
+        element, selector = _visible_face_popup(self.driver)
+        if element is not None:
+            print(f"检测到人脸弹窗: {selector}", flush=True)
+            return True
+        print("未检测到人脸弹窗", flush=True)
         return False
 
-def delete_face_popup(driver,pass_face,class_name='maskDiv1 chapterVideoFaceQrMaskDiv'):
+
+def _manual_scan_or_raise(driver, manual_wait=None) -> bool:
+    """等本人用手机扫码；超时抛 FaceRequired，调用方停止本课程。"""
+    timeout = MANUAL_SCAN_TIMEOUT if manual_wait is None else manual_wait
+    print(color.yellow(
+        f'请用手机学习通 APP 扫描浏览器里的二维码完成人脸采集，'
+        f'最多等待 {int(timeout)} 秒...'), flush=True)
+    if wait_for_manual_scan(driver, timeout):
+        print(color.green('人脸采集已完成，继续刷课'), flush=True)
+        return True
+    print(color.red('❌ 人脸采集未完成，已停止本课程（不会自动刷新重试）'), flush=True)
+    raise FaceRequired('需要本人完成人脸采集')
+
+
+def delete_face_popup(driver, pass_face, class_name='', manual_wait=None, auto_verify=8):
+    """处理人脸弹窗。
+
+    - 没有弹窗：直接继续；
+    - 自动处理已关闭（pass_face=0）：只提示本人扫码，不自动提交；
+    - 自动流程成功且弹窗真的关闭：直接继续；
+    - 自动流程成功但弹窗还在（章节页采集）：提示本人扫码，最多等 120 秒；
+    - 自动流程失败：同样只等待本人扫码，不再走 check_face/删弹窗/递归；
+    - 等待超时：抛 FaceRequired，调用方停止本课程，避免刷新出新二维码死循环。
+    """
+    if driver is None:
+        return True
+
+    element, selector = _visible_face_popup(driver)
+    if element is None:
+        return True
+
+    if not pass_face:
+        print(color.yellow(f'检测到人脸采集弹窗（{selector}），自动处理已关闭，需要本人扫码'),
+              flush=True)
+        return _manual_scan_or_raise(driver, manual_wait)
+
+    print(color.green(f'检测到人脸弹窗: {selector}'), flush=True)
+    if class_name:
+        print(f'当前课程: {class_name}', flush=True)
+
     bypass = ChaoxingFaceBypass(driver)
-    if bypass.wait_for_face_popup(pass_face):
-        print(color.green('正在处理人脸弹窗，请耐心等待'), flush=True)
-        ok = bypass.run()
-        print(f"[结果] 本次处理: {'成功' if ok else '失败'}", flush=True)
-        if ok:
-            time.sleep(3)
-            return
-        else:
-            if 'maskDiv1' not in class_name:
-                with open(rf'task/tool/face_url.json', 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    face_url = data.get(class_name, '')
-                check_face(driver, face_url, course_name=class_name)
-                check_face(driver, face_url, face_class='maskDiv', course_name=class_name)
-            print(color.green('开始强制删除人脸弹窗'), flush=True)
-            try:
-                # 等待弹窗容器出现（最长等待10秒）
-                popup = WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, f"[class='{class_name}']"))
-                )
-                # 隐藏弹窗
-                # driver.execute_script("arguments[0].style.display='none';", popup)
-                driver.execute_script("arguments[0].remove();", popup)
-                print(color.green('成功删除人脸弹窗'),flush=True)
-            except Exception as e:
-                pass
-            delete_face_popup(driver,pass_face,'maskDiv1 starttippop faceRecognition_1 chapterVideoFaceMaskDiv')
+    print(color.green('正在尝试自动处理人脸弹窗'), flush=True)
+    ok = bypass.run()
+    print(f'[结果] 二维码状态: {"提交成功" if ok else "提交失败"}', flush=True)
+
+    if ok and _wait_popup_gone(driver, auto_verify):
+        print(color.green('人脸校验已通过，弹窗已关闭'), flush=True)
+        return True
+
+    if ok:
+        print(color.yellow('二维码状态已更新，但采集弹窗仍未关闭，不能算成功'), flush=True)
+    else:
+        print(color.yellow('自动处理没有通过，需要本人完成采集'), flush=True)
+
+    return _manual_scan_or_raise(driver, manual_wait)
