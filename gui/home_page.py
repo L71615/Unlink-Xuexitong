@@ -121,9 +121,7 @@ class HomePage(ctk.CTkFrame):
         chips = ctk.CTkFrame(row, fg_color="transparent")
         chips.pack(side="right", anchor="s", pady=(0, 2))
         self.chip_timer = Chip(chips, "定时 未开启")
-        self.chip_timer.pack(side="left", padx=(0, 8))
-        self.chip_multi = Chip(chips, "多端 关闭")
-        self.chip_multi.pack(side="left")
+        self.chip_timer.pack(side="left")
 
     # ------------------------------------------------------------------
     def _build_overview(self, parent) -> None:
@@ -373,9 +371,8 @@ class HomePage(ctk.CTkFrame):
         self._live_dot.configure(text_color=theme.OK if running else theme.FAINT)
         self._sync_state()
 
-    def set_chips(self, timer_on: bool, timer_text: str, multi_on: bool) -> None:
+    def set_chips(self, timer_on: bool, timer_text: str) -> None:
         self.chip_timer.set_state(timer_text, on=timer_on)
-        self.chip_multi.set_state("多端 开启" if multi_on else "多端 关闭", on=multi_on)
 
     def set_metrics(self, done: int | None = None, elapsed: int | None = None,
                     errors: int | None = None) -> None:

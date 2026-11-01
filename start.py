@@ -136,7 +136,6 @@ class App:
         self.started_at: float | None = None
         self.errors = 0
         self._baseline_done = 0
-        self._login_seen: dict[str, bool] = {}
         self._all_courses = list(self.account.get("cour") or [])
         self.timer_active = bool(self.account.get("timer_active"))
         self.timer_start = self.account.get("timer_start") or "04:00:00"
@@ -270,8 +269,7 @@ class App:
         self.home.set_course(course, done, total, account.get("task_type", "章节"))
         self.home.set_resume(self._resume_text(course, account.get("phone_number", "")))
         self.home.set_metrics(done=0, elapsed=0, errors=0)
-        self.home.set_chips(self.timer_active, self._chip_text(),
-                            bool(account.get("multi_device")))
+        self.home.set_chips(self.timer_active, self._chip_text())
         self.home.set_pending(self._pending_items())
 
     def _pending_items(self) -> list[tuple[str, str]]:
@@ -466,8 +464,7 @@ class App:
             self.home.set_cache(len(self._cache_files()))
             self.home.set_resume(self._resume_text(
                 self._current_course(), self.account.get("phone_number", "")))
-        self.home.set_chips(self.timer_active, self._chip_text(),
-                            bool(self.account.get("multi_device")))
+        self.home.set_chips(self.timer_active, self._chip_text())
         self.root.after(1000, self._tick)
 
     def _current_course(self) -> str:
@@ -528,29 +525,10 @@ class App:
 
     def _launch(self) -> None:
         try:
-            if self.account.get("multi_device"):
-                self._launch_multi()
-            else:
-                self.run_program()
+            self.run_program()
         except Exception as error:
             self.log(f"启动失败：{error}", "err")
             self.root.after(0, self.stop)
-
-    def _launch_multi(self) -> None:
-        courses = list(self._all_courses)
-        for course in courses:
-            if not self.running:
-                break
-            self.account["cour"] = [course]
-            self.config.save_account(self.account)
-            self._login_seen[course] = False
-            self.run_program(course)
-            deadline = time.time() + 180
-            while self.running and not self._login_seen.get(course) \
-                    and time.time() < deadline:
-                time.sleep(0.5)
-        self.account["cour"] = courses
-        self.config.save_account(self.account)
 
     def run_program(self, course: str | None = None):
         if getattr(sys, "frozen", False):
@@ -586,8 +564,6 @@ class App:
                 else:
                     level = "normal"
                 self.log(prefix + line, level)
-                if "正在登录中" in line and course:
-                    self._login_seen[course] = True
                 if "❌" in line:
                     self.root.after(0, self.stop)
                     break
@@ -662,7 +638,7 @@ class App:
         account["timer_active"] = 1
         self.config.save_account(account)
         self.account = account
-        self.home.set_chips(True, self._chip_text(), bool(account.get("multi_device")))
+        self.home.set_chips(True, self._chip_text())
         self.log(f"已开启定时：{start} → {end}", "ok")
 
     def _on_timer_cancel(self) -> None:
@@ -673,7 +649,7 @@ class App:
         account["timer_active"] = 0
         self.config.save_account(account)
         self.account = account
-        self.home.set_chips(False, self._chip_text(), bool(account.get("multi_device")))
+        self.home.set_chips(False, self._chip_text())
         self.log("已关闭定时刷课", "warn")
 
     def on_settings_saved(self, account: dict) -> None:

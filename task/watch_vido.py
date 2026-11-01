@@ -17,6 +17,7 @@ from selenium.webdriver.common.by import By
 import itertools
 
 from task.tool.common import save_record
+from core.sleep_guard import keep_display_awake
 from task.tool.face import delete_face_popup
 from task.tool.speed_control import apply_speed
 
@@ -438,8 +439,8 @@ def check_vido_finish(driver,i,time_start,total_time,vido_iframe,lock_screen,API
                     print(color.green('总共耗费了%.2f秒.' % (time_end - time_start)), flush=True)
                     break
             if lock_screen:
-                pyautogui.move(20, 0, )
-                pyautogui.move(-20, 0)
+                # 不再抖鼠标：只申请系统保持唤醒，避免干扰用户操作
+                keep_display_awake()
     return True
 
 def study_page(driver,course_name,lock_screen,API,video_title_choice,pass_vido,speed,pass_face):

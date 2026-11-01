@@ -202,22 +202,20 @@ class SettingsPage(ctk.CTkFrame):
 
         self.switch_face = _switch(self.brush)
         self._row(self.brush, 6, "自动处理人脸", self.switch_face)
-        self.switch_multi = _switch(self.brush, command=self._on_multi_warn)
-        self._row(self.brush, 7, "多端学习", self.switch_multi)
         self.switch_skip = _switch(self.brush, command=self._on_skip_video)
-        self._row(self.brush, 8, "秒过视频", self.switch_skip)
+        self._row(self.brush, 7, "秒过视频", self.switch_skip)
         self.switch_lock = _switch(self.brush)
-        self._row(self.brush, 9, "防锁屏", self.switch_lock)
+        self._row(self.brush, 8, "防锁屏", self.switch_lock)
 
         timer_box = ctk.CTkFrame(self.brush, fg_color="transparent")
         self.timer_switch = _switch(timer_box, command=self._on_timer_switch)
         self.timer_switch.pack(side="left")
         text_button(timer_box, "设置时间", self._open_timer, height=28).pack(
             side="left", padx=(10, 0))
-        self._row(self.brush, 10, "定时刷课", timer_box)
+        self._row(self.brush, 9, "定时刷课", timer_box)
 
         self.timer_hint = Hint(self.brush, "未设置定时")
-        self.timer_hint.grid(row=11, column=0, columnspan=3, sticky="w",
+        self.timer_hint.grid(row=10, column=0, columnspan=3, sticky="w",
                              padx=18, pady=(0, 14))
 
         self.homework = ctk.CTkFrame(card, fg_color="transparent")
@@ -316,12 +314,6 @@ class SettingsPage(ctk.CTkFrame):
         if value.isdigit() and int(value) > 2:
             messagebox.showinfo("提示", "倍速过高可能让已完成的任务点被清空，谨慎使用")
 
-    def _on_multi_warn(self) -> None:
-        if self.switch_multi.get():
-            messagebox.showwarning(
-                "注意", "开启多端学习会同时跑多门课，有可能清空进度，"
-                        "除非实在刷不完，建议一科一科来")
-
     def _on_skip_video(self) -> None:
         if self.switch_skip.get():
             self.speed.set("1")
@@ -380,7 +372,7 @@ class SettingsPage(ctk.CTkFrame):
         self.font_size.set(str(account.get("font_size") or 13))
         self.accent.set(account.get("accent") or theme.DEFAULT_ACCENT)
 
-        pairs = ((self.switch_face, "pass_face"), (self.switch_multi, "multi_device"),
+        pairs = ((self.switch_face, "pass_face"),
                  (self.switch_skip, "pass_vido"), (self.switch_lock, "lock_screen"),
                  (self.switch_top, "topmost"))
         for switch, key in pairs:
@@ -422,7 +414,6 @@ class SettingsPage(ctk.CTkFrame):
         account["font_size"] = self.font_size.get()
         account["accent"] = self.accent.get()
         account["pass_face"] = int(self.switch_face.get())
-        account["multi_device"] = int(self.switch_multi.get())
         account["pass_vido"] = int(self.switch_skip.get())
         account["lock_screen"] = int(self.switch_lock.get())
         account["topmost"] = int(self.switch_top.get())

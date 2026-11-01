@@ -90,12 +90,6 @@ def stage_assets() -> Path:
     if ASSETS.exists():
         shutil.rmtree(ASSETS)
     task_dst = ASSETS / "task"
-    img_dst = task_dst / "img"
-    img_dst.mkdir(parents=True)
-
-    for name in (ROOT / "task" / "img").iterdir():
-        if name.is_file():
-            shutil.copy2(name, img_dst / name.name)
 
     tool_dst = task_dst / "tool"
     tool_dst.mkdir()
