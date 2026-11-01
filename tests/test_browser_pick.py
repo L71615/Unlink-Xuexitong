@@ -57,7 +57,7 @@ class DriverPickTests(unittest.TestCase):
         self.assertEqual(source, "bundled")
         self.assertEqual(path, str(self.driver))
 
-    def test_mismatched_bundled_driver_falls_back_to_manager(self):
+    def test_flat_driver_with_other_major_falls_back_to_manager(self):
         with mock.patch.object(browser_module, "browser_version", return_value="157.0.1.1"), \
                 mock.patch.object(browser_module, "driver_version", return_value="156.0.4314.42"):
             source, path = browser_module.resolve_driver("edge", "")
@@ -128,10 +128,9 @@ class DriverMatrixTests(unittest.TestCase):
             picked = browser_module._pick_by_major("156.0.4314.50")
         self.assertEqual(picked, want)
 
-    def test_skips_folder_when_version_mismatches(self):
-        self._make_driver("156")
-        with mock.patch.object(browser_module, "driver_version", return_value="155.0.4000.1"):
-            self.assertIsNone(browser_module._pick_by_major("156.0.4314.50"))
+    def test_ignores_folder_of_another_major(self):
+        self._make_driver("155")
+        self.assertIsNone(browser_module._pick_by_major("156.0.4314.50"))
 
     def test_accepts_folder_when_driver_version_unreadable(self):
         want = self._make_driver("156")

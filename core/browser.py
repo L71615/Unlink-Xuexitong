@@ -163,22 +163,17 @@ def bundled_drivers() -> dict[str, Path]:
 
 
 def _pick_by_major(installed) -> Path | None:
-    """按已装 Edge 的主版本挑驱动；版本对不上或没装浏览器时返回 None。
+    """按已装 Edge 的主版本挑驱动；没装浏览器时返回 None。
 
-    目录名本身就是主版本，读不到文件版本（个别打包环境下会这样）时也认它，
-    否则会白白回退到联网下载。
+    目录名就是主版本，所以这里只认主版本：msedgedriver 只要求主版本一致，
+    补丁号不同（浏览器自动小版本升级）也能用。这样连驱动文件版本读不出来的
+    环境（个别打包/权限受限场景）也不会白白回退到联网下载。
     """
     major = parse_version(installed)
     if not major:
         return None
     drivers = bundled_drivers()
-    candidate = drivers.get(str(major[0]))
-    if not candidate:
-        return None
-    current = driver_version(candidate)
-    if not current or versions_match(installed, current):
-        return candidate
-    return None
+    return drivers.get(str(major[0]))
 
 
 def resolve_driver(browser: str, driver_path: str = "") -> tuple[str, str]:
