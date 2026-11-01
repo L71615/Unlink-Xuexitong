@@ -16,15 +16,20 @@ from task.tool.common import turn_page, Common
 from task.tool.no_secret import DecodeSecret
 from task.tool import color
 import sys
-import io
 from task.tool.ai_wen_da import main,AnswerAPI,Question
 from task.tool.answer_match import (answer_text, match_indices, split_batch,
                                     split_blanks, to_items)
 from task.tool.DeepSeekAsk import DeepSeekAsk
 from task.tool.send_wx import send_error
 
-# 设置默认编码为UTF-8
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+# 设置默认编码为UTF-8。
+# 不要用 TextIOWrapper 重新包一层：那个包装器析构时会关掉底层 buffer，
+# 把测试框架/父进程的 stdout 一起关掉（`ValueError: I/O operation on closed file`）。
+try:
+    if (sys.stdout.encoding or "").lower().replace("-", "") != "utf8":
+        sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
 
 
 

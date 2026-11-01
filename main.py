@@ -5,10 +5,7 @@
 
 #打包python -m PyInstaller --onefile --collect-all selenium main.py
 import json
-import os
-from pathlib import Path
 import re
-import pickle
 import time
 import traceback
 import pyautogui
@@ -17,7 +14,6 @@ from selenium.common import NoSuchDriverException, NoSuchWindowException, WebDri
     ElementClickInterceptedException
 from selenium.webdriver import ActionChains
 from selenium.webdriver.common.by import By
-from selenium import webdriver
 
 from task.tool.common import save_process
 from task.tool.face import get_cookie,auto_login_with_cookies,delete_face_popup,FaceRequired
@@ -33,6 +29,7 @@ from task.tool.send_wx import send_error
 from task.do_work import do_work
 from task.reading import reading
 from core.resume import Resume
+from core import browser as browser_module
 error_num=0#错误次数
 RESUME=None#断点续刷记录器，在 main() 里初始化
 
@@ -470,41 +467,16 @@ def run(driver,choice,course_name,API,lock_screen,pass_face,video_title_choice,
 
 def start_browser(browser,driver_path,speed):
     print(color.green('启动浏览器中...'), flush=True)
-    if browser == 'chrome':
-        from selenium.webdriver.chrome.service import Service
-        from selenium.webdriver.chrome.options import Options
+    state = browser_module.driver_state(browser, driver_path)
+    if state['driver_source'] == 'bundled':
+        print(color.green(
+            f"使用内置驱动（浏览器 {state['browser_version'] or '未知'} / "
+            f"驱动 {state['driver_version'] or '未知'}）"), flush=True)
+    elif state['driver_source'] == 'custom':
+        print(color.green(f"使用指定驱动：{state['driver_path']}"), flush=True)
     else:
-        from selenium.webdriver.edge.service import Service
-        from selenium.webdriver.edge.options import Options
-    # 创建 Driver 服务。未手动指定驱动时，直接使用 Selenium 随包
-    # 附带的 Windows Manager，避免某些 Windows 环境无法识别 CPU
-    # 架构而报 ``Unsupported platform/architecture ... win32/``。
-    bundled_edge_driver = Path(__file__).parent / 'task' / 'tool' / 'edge_driver' / 'msedgedriver.exe'
-    if driver_path:
-        service = Service(driver_path)
-    elif browser != 'chrome' and bundled_edge_driver.is_file():
-        service = Service(str(bundled_edge_driver))
-    else:
-        from selenium.webdriver.common import selenium_manager
-        manager_path = Path(selenium_manager.__file__).parent / 'windows' / 'selenium-manager.exe'
-        if manager_path.is_file():
-            os.environ['SE_MANAGER_PATH'] = str(manager_path)
-        service = Service()
-    options = Options()
-    options.add_argument("--disable-blink-features=AutomationControlled")  # 禁用自动化控制提示
-    if speed!='1':
-        options.add_extension(r"task\tool\speed.crx")
-    options.add_extension(r"task\tool\chrome-extension.crx")
-    options.add_argument("--enable-extensions")
-
-    if browser == 'chrome':
-        driver = webdriver.Chrome(service=service, options=options)
-    else:
-        # 初始化Chrome浏览器
-        driver = webdriver.Edge(service=service, options=options)
-
-    driver.implicitly_wait(2)
-    return driver
+        print(color.yellow('内置驱动与当前浏览器版本不匹配，改为自动获取驱动'), flush=True)
+    return browser_module.create_driver(browser, driver_path, speed)
 
 def main(browser, driver_path, phone_number, password, choice, course_lst,API,after_finish_question,
          lock_screen,speed, task_type,homework,pass_face,video_title_choice,discussion_choice,pass_vido):

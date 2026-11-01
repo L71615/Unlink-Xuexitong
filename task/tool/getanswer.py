@@ -3,7 +3,6 @@
 # This software is provided for non-commercial use only.
 # For more information, see the LICENSE file in the root directory of this project.
 
-import io
 import re
 import sys
 import time
@@ -12,8 +11,15 @@ from selenium.webdriver.common.by import By
 from task.tool import color
 
 
-# 修改 stdout 编码为 UTF-8
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+# 修改 stdout 编码为 UTF-8。
+# 以前是 `sys.stdout = io.TextIOWrapper(sys.stdout.buffer, ...)`，那个包装器
+# 析构时会关掉底层 buffer，把测试框架/父进程的 stdout 一起关掉
+# （表现为 `ValueError: I/O operation on closed file`），这里改成原地重配置。
+try:
+    if (sys.stdout.encoding or "").lower().replace("-", "") != "utf8":
+        sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
 # 自定义文件
 class NoFoundAnswerException(Exception):
     """

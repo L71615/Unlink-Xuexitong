@@ -11,16 +11,12 @@ import os
 import sys
 from dataclasses import dataclass
 
-BUNDLED_DRIVER = os.path.join("task", "tool", "edge_driver", "msedgedriver.exe")
+from core import browser as browser_module
+
+BUNDLED_DRIVER = str(browser_module.BUNDLED_DRIVER)
 BROWSER_PATHS = {
-    "edge": (
-        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-    ),
-    "chrome": (
-        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-    ),
+    name: tuple(str(path) for path in paths)
+    for name, paths in browser_module.BROWSER_PATHS.items()
 }
 
 
@@ -56,6 +52,23 @@ def _driver(path: str) -> Check:
                  "在设置里选择 msedgedriver.exe，或放回 task/tool/edge_driver/", True)
 
 
+def _version_match(name: str, driver_path: str = "") -> Check:
+    """浏览器与驱动的三段版本是否一致；不一致时启动会回退到在线获取。"""
+    label = "驱动版本匹配"
+    state = browser_module.driver_state(name, driver_path)
+    if not state["browser_version"]:
+        return Check(label, True, "没读到浏览器版本，跳过比对")
+    if state["driver_source"] == "manager":
+        return Check(label, True, "内置驱动不匹配，启动时自动获取")
+    if not state["driver_version"]:
+        return Check(label, True, "没读到驱动版本，跳过比对")
+    detail = f"浏览器 {state['browser_version']} / 驱动 {state['driver_version']}"
+    if state["matched"]:
+        return Check(label, True, detail)
+    return Check(label, False, detail,
+                 "启动时会自动获取匹配的驱动；也可以手动更新 task/tool/edge_driver/")
+
+
 def _browser(name: str) -> Check:
     label = "浏览器"
     if not name or name in ("不指定浏览器", "自动"):
@@ -71,7 +84,7 @@ def _browser(name: str) -> Check:
 
 
 def _writable() -> Check:
-    folder = os.path.join("task", "tool")
+    folder = str(browser_module.ROOT / "task" / "tool")
     path = os.path.join(folder, f".selfcheck_{os.getpid()}")
     try:
         os.makedirs(folder, exist_ok=True)
@@ -104,6 +117,7 @@ def run(account: dict | None = None) -> list[Check]:
         _module("openai", "openai", "pip install openai"),
         _driver(account.get("driver_path", "")),
         _browser(account.get("browser", "")),
+        _version_match(account.get("browser", ""), account.get("driver_path", "")),
         _writable(),
         _api_key(account),
     ]
