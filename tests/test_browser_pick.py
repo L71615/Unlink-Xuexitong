@@ -43,6 +43,7 @@ class DriverPickTests(unittest.TestCase):
         self.driver.write_bytes(b"stub")
         patches = [
             mock.patch.object(browser_module, "BUNDLED_DRIVER", self.driver),
+            mock.patch.object(browser_module, "DRIVER_DIR", Path(self.tmp.name) / "edge_driver"),
             mock.patch.object(browser_module, "ROOT", Path(self.tmp.name)),
         ]
         for patch in patches:
@@ -84,6 +85,75 @@ class DriverPickTests(unittest.TestCase):
         self.driver.unlink()
         source, _ = browser_module.resolve_driver("edge", "")
         self.assertEqual(source, "manager")
+
+
+class DriverMatrixTests(unittest.TestCase):
+    """按主版本分目录的驱动：装哪个版本就挑哪个目录。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.driver_dir = self.root / "edge_driver"
+        self.driver_dir.mkdir()
+        patch = mock.patch.object(browser_module, "DRIVER_DIR", self.driver_dir)
+        patch.start()
+        self.addCleanup(patch.stop)
+        patch = mock.patch.object(
+            browser_module, "BUNDLED_DRIVER", self.root / "missing" / "msedgedriver.exe")
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def _make_driver(self, folder: str) -> Path:
+        target = self.driver_dir / folder / "msedgedriver.exe"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"stub")
+        return target
+
+    def test_lists_version_folders_and_flat_file(self):
+        want = self._make_driver("156")
+        self._make_driver("155")
+        flat = self.root / "flat" / "msedgedriver.exe"
+        flat.parent.mkdir()
+        flat.write_bytes(b"stub")
+        with mock.patch.object(browser_module, "BUNDLED_DRIVER", flat):
+            drivers = browser_module.bundled_drivers()
+        self.assertEqual(sorted(drivers), ["155", "156", "flat"])
+        self.assertEqual(drivers["156"], want)
+
+    def test_picks_the_folder_matching_installed_major(self):
+        want = self._make_driver("156")
+        self._make_driver("155")
+        with mock.patch.object(browser_module, "driver_version", return_value="156.0.4314.42"):
+            picked = browser_module._pick_by_major("156.0.4314.50")
+        self.assertEqual(picked, want)
+
+    def test_skips_folder_when_version_mismatches(self):
+        self._make_driver("156")
+        with mock.patch.object(browser_module, "driver_version", return_value="155.0.4000.1"):
+            self.assertIsNone(browser_module._pick_by_major("156.0.4314.50"))
+
+    def test_accepts_folder_when_driver_version_unreadable(self):
+        want = self._make_driver("156")
+        with mock.patch.object(browser_module, "driver_version", return_value=None):
+            picked = browser_module._pick_by_major("156.0.4314.50")
+        self.assertEqual(picked, want)
+
+    def test_returns_none_without_installed_browser(self):
+        self._make_driver("156")
+        self.assertIsNone(browser_module._pick_by_major(None))
+
+    def test_resolve_prefers_matrix_over_flat(self):
+        matrix = self._make_driver("156")
+        flat = self.root / "flat" / "msedgedriver.exe"
+        flat.parent.mkdir()
+        flat.write_bytes(b"stub")
+        with mock.patch.object(browser_module, "BUNDLED_DRIVER", flat), \
+                mock.patch.object(browser_module, "browser_version", return_value="156.0.4314.50"), \
+                mock.patch.object(browser_module, "driver_version", return_value="156.0.4314.42"):
+            source, path = browser_module.resolve_driver("edge", "")
+        self.assertEqual(source, "bundled")
+        self.assertEqual(path, str(matrix))
 
 
 class DriverStateTests(unittest.TestCase):

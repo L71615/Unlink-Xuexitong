@@ -45,10 +45,16 @@ def _python() -> Check:
 
 
 def _driver(path: str) -> Check:
-    candidate = (path or "").strip() or BUNDLED_DRIVER
-    if os.path.isfile(candidate):
-        return Check("浏览器驱动", True, candidate)
-    return Check("浏览器驱动", False, candidate,
+    explicit = (path or "").strip()
+    if explicit and os.path.isfile(explicit):
+        return Check("浏览器驱动", True, explicit)
+    drivers = browser_module.bundled_drivers()
+    if drivers:
+        folders = sorted(drivers)
+        detail = (f"{len(folders)} 个主版本：{', '.join(folders)}"
+                  if len(folders) > 1 else str(drivers[folders[0]]))
+        return Check("浏览器驱动", True, detail)
+    return Check("浏览器驱动", False, explicit or BUNDLED_DRIVER,
                  "在设置里选择 msedgedriver.exe，或放回 task/tool/edge_driver/", True)
 
 
@@ -59,7 +65,8 @@ def _version_match(name: str, driver_path: str = "") -> Check:
     if not state["browser_version"]:
         return Check(label, True, "没读到浏览器版本，跳过比对")
     if state["driver_source"] == "manager":
-        return Check(label, True, "内置驱动不匹配，启动时自动获取")
+        inner = "、".join(state.get("available_drivers") or []) or "无"
+        return Check(label, True, f"内置驱动不匹配，启动时自动获取（内置主版本：{inner}）")
     if not state["driver_version"]:
         return Check(label, True, "没读到驱动版本，跳过比对")
     detail = f"浏览器 {state['browser_version']} / 驱动 {state['driver_version']}"

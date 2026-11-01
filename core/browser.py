@@ -22,8 +22,17 @@ import os
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-BUNDLED_DRIVER = ROOT / "task" / "tool" / "edge_driver" / "msedgedriver.exe"
+def _app_root() -> Path:
+    """打包后是 exe 所在目录（`_internal` 里只有运行库），源码运行时是项目根。"""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+
+
+ROOT = _app_root()
+DRIVER_DIR = ROOT / "task" / "tool" / "edge_driver"
+# 老布局：驱动直接放在 edge_driver/ 下；新布局按主版本分目录，见 :func:`bundled_drivers`
+BUNDLED_DRIVER = DRIVER_DIR / "msedgedriver.exe"
 SPEED_EXTENSION = ROOT / "task" / "tool" / "speed.crx"
 EXTENSION = ROOT / "task" / "tool" / "chrome-extension.crx"
 
@@ -133,6 +142,45 @@ def driver_version(path=None) -> str | None:
     return file_version(target)
 
 
+def bundled_drivers() -> dict[str, Path]:
+    """随包分发的驱动清单：``{主版本: 路径}``。
+
+    新布局是 ``edge_driver/156/msedgedriver.exe``，可以同时带几个主版本，
+    Edge 自动升级到另一个主版本时仍有匹配的驱动可用；老布局的扁平
+    ``edge_driver/msedgedriver.exe`` 记为 ``"flat"`` 继续兼容。
+    """
+    drivers: dict[str, Path] = {}
+    if DRIVER_DIR.is_dir():
+        for item in sorted(DRIVER_DIR.iterdir()):
+            if not item.is_dir():
+                continue
+            exe = item / "msedgedriver.exe"
+            if item.name.isdigit() and exe.is_file():
+                drivers[item.name] = exe
+    if BUNDLED_DRIVER.is_file():
+        drivers.setdefault("flat", BUNDLED_DRIVER)
+    return drivers
+
+
+def _pick_by_major(installed) -> Path | None:
+    """按已装 Edge 的主版本挑驱动；版本对不上或没装浏览器时返回 None。
+
+    目录名本身就是主版本，读不到文件版本（个别打包环境下会这样）时也认它，
+    否则会白白回退到联网下载。
+    """
+    major = parse_version(installed)
+    if not major:
+        return None
+    drivers = bundled_drivers()
+    candidate = drivers.get(str(major[0]))
+    if not candidate:
+        return None
+    current = driver_version(candidate)
+    if not current or versions_match(installed, current):
+        return candidate
+    return None
+
+
 def resolve_driver(browser: str, driver_path: str = "") -> tuple[str, str]:
     """决定用哪个驱动。
 
@@ -152,9 +200,12 @@ def resolve_driver(browser: str, driver_path: str = "") -> tuple[str, str]:
             return "custom", str(path)
     if (browser or "").lower() == "chrome":
         return "manager", ""
+    installed = browser_version(browser or "edge")
+    matched = _pick_by_major(installed)
+    if matched is not None:
+        return "bundled", str(matched)
     if not BUNDLED_DRIVER.is_file():
         return "manager", ""
-    installed = browser_version(browser or "edge")
     if installed:
         bundled = driver_version()
         if bundled and not versions_match(installed, bundled):
@@ -181,6 +232,7 @@ def driver_state(browser: str = "", driver_path: str = "") -> dict:
         "driver_source": source,
         "driver_path": path,
         "driver_version": current,
+        "available_drivers": sorted(bundled_drivers()),
         "matched": matched,
     }
 
