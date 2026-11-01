@@ -692,15 +692,61 @@ class App:
         self.root.destroy()
 
 
+def _install_crash_log() -> None:
+    """窗口版没有控制台，崩溃时把堆栈写进 exe 旁边的 error.log。"""
+    import traceback
+
+    def _dump(exc_type, exc_value, exc_tb) -> None:
+        text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        try:
+            path = os.path.join(base_dir(), "error.log")
+            with open(path, "a", encoding="utf-8") as handle:
+                handle.write(f"\n===== {datetime.now():%Y-%m-%d %H:%M:%S} =====\n{text}")
+        except OSError:
+            pass
+        try:
+            messagebox.showerror(APP_NAME, f"程序遇到错误：\n{exc_value}\n\n详细信息见 error.log")
+        except Exception:
+            pass
+
+    sys.excepthook = _dump
+    threading.excepthook = lambda args: _dump(args.exc_type, args.exc_value, args.exc_traceback)
+
+
+def _write_diagnose() -> str:
+    """把浏览器/驱动/路径信息写到 exe 旁的诊断文件，方便排查启动问题。"""
+    from core import browser as browser_module
+
+    account = ConfigManager().load_account() or {}
+    lines = [f"{APP_NAME} {APP_VERSION}", f"工作目录：{os.getcwd()}", ""]
+    for name in ("edge", "chrome"):
+        state = browser_module.driver_state(name, account.get("driver_path", ""))
+        lines.append(f"[{name}] {state}")
+    lines.append(f"内置驱动目录：{browser_module.DRIVER_DIR}")
+    lines.append(f"内置驱动清单：{browser_module.bundled_drivers()}")
+    path = os.path.join(base_dir(), "诊断信息.txt")
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(lines) + "\n")
+    return path
+
+
 if __name__ == "__main__":
+    _install_crash_log()
     prepare_workdir()
+    if "--diagnose" in sys.argv:
+        print(_write_diagnose())
+        sys.exit(0)
     if "--worker" in sys.argv:
         import main as worker
 
-        worker.run_main()
+        try:
+            worker.run_main()
+        except Exception:
+            logging.exception("工作进程异常退出")
+            raise
     else:
         app = App()
         for arg in sys.argv[1:]:
             if arg in app.pages:
                 app.show_page(arg)
-    app.root.mainloop()
+        app.root.mainloop()

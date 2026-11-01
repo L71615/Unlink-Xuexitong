@@ -1,0 +1,68 @@
+name: release
+
+# 打 tag（v1.1.0 这种）就自动构建绿色免安装目录并挂到 Release 上
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 读取版本号
+        id: version
+        shell: pwsh
+        run: |
+          $version = python -c "import version; print(version.APP_VERSION)"
+          "APP_VERSION=$version" >> $env:GITHUB_OUTPUT
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: 单元测试
+        run: python -m pytest tests -q
+
+      - name: 打包（含两个主版本的 Edge 驱动）
+        run: python build_exe.py --fetch-drivers 156,155
+
+      - name: 压缩
+        shell: pwsh
+        run: |
+          $zip = "课业助手-${{ steps.version.outputs.APP_VERSION }}-win64.zip"
+          Compress-Archive -Path "dist/课业助手/*" -DestinationPath $zip
+          "ZIP_NAME=$zip" >> $env:GITHUB_OUTPUT
+        id: zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 课业助手-${{ steps.version.outputs.APP_VERSION }}
+          path: ${{ steps.zip.outputs.ZIP_NAME }}
+
+      - name: 上传到 Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.zip.outputs.ZIP_NAME }}
+          generate_release_notes: true
+          body: |
+            ### 使用方法
+
+            1. 下载下面的 zip，解压到任意目录（整个文件夹一起解压）
+            2. 双击 `课业助手.exe`
+            3. 首次运行若弹 SmartScreen，点「更多信息」→「仍要运行」
+
+            需要电脑上已安装 Microsoft Edge；包内自带 Edge 驱动，版本对不上时会自动联网取。

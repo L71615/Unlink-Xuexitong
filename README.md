@@ -8,6 +8,18 @@
 
 ![运行中](mockups/home-running.png)
 
+## 下载即用（不需要装 Python）
+
+1. 打开 [Releases](https://github.com/L71615/Unlink-Xuexitong/releases)，下载最新的 `课业助手-1.1.0-win64.zip`。
+2. 解压到任意目录（整个文件夹一起解压，别只把 exe 拖出来）。
+3. 双击 `课业助手.exe`，第一次启动会自动检查环境。
+
+首次运行 Windows 可能弹蓝色 SmartScreen 提示，点「更多信息」→「仍要运行」即可（exe 没有买代码签名证书）。
+
+程序调用的是你电脑上已装的 Microsoft Edge，请保证 Edge 是正常安装的版本。包内自带 156 主版本的 Edge 驱动；Edge 自动升级到别的主版本时，程序会先找 `task/tool/edge_driver/<主版本>/` 下有没有对应驱动，没有就联网用 Selenium Manager 取一个。
+
+想自己改代码 / 从源码运行，看下面的「安装」与「运行」。
+
 ## 功能
 
 - **自动刷课**：自动登录、选课、逐个任务点往下推进，支持视频、PPT、直播、音频、阅读、讨论
@@ -32,7 +44,8 @@
 ## 环境要求
 
 - Windows 10 / 11
-- Python 3.10 以上（开发与验证环境为 3.11）
+- 用下载版：不需要 Python，只要装了 Microsoft Edge
+- 从源码运行：Python 3.10 以上（开发与验证环境为 3.11）
 - Microsoft Edge（推荐，项目自带 Edge 驱动）或 Chrome（需自备同版本驱动）
 
 ## 安装
@@ -49,13 +62,17 @@ python start.py
 
 首次启动先到「设置」页填好账号、密码、课程名并保存，再回主页点「开始刷课」。
 
-打包成单个 exe：
+打一个绿色免安装目录：
 
 ```bash
-python build_exe.py
+python build_exe.py                 # 产物 dist/课业助手/，双击 dist/课业助手/课业助手.exe
+python build_exe.py --onefile       # 单文件版 dist/课业助手.exe（启动要解压，慢 5-10 秒）
+python build_exe.py --fetch-drivers 156,155   # 顺便下几个主版本的 Edge 驱动打进包里
 ```
 
-产物是 `dist/CourseHelper.exe`。
+`--skip-build` 只准备 `build_assets/`，不调用 PyInstaller。
+
+版本号只在 `version.py` 里改一处，界面标题、exe 属性、`task/tool/version_info` 都由它来。
 
 ## 配置
 
@@ -63,7 +80,7 @@ python build_exe.py
 
 | 选项 | 说明 |
 | --- | --- |
-| 浏览器 / 驱动地址 | Edge 可不填驱动，使用自带的 `task/tool/edge_driver/msedgedriver.exe` |
+| 浏览器 / 驱动地址 | Edge 可不填驱动，使用自带的 `task/tool/edge_driver/<主版本>/msedgedriver.exe` |
 | 课程 | 最多 3 门，名称必须和学习通里完全一致 |
 | 章节测验 | `DeepSeek AI` / `随机答题` / `不刷题` |
 | 答完题后 | 仅保存、强制提交，或答对率达到指定比例再提交 |
@@ -80,6 +97,8 @@ python build_exe.py
 ```
 start.py                 界面主程序（导航、进程、日志、定时）
 main.py                  刷课工作进程（Selenium 自动化）
+version.py               版本号单一来源（APP_NAME / APP_VERSION）
+build_exe.py             打包脚本（onedir 默认，可 --onefile / --fetch-drivers）
 core/config_manager.py   配置读写
 core/resume.py           断点续刷状态（已刷完 / 中断的课程）
 core/timer_plan.py       定时区间计算（跨天、补跑、下次开始）
@@ -107,7 +126,7 @@ mockups/                 界面设计稿、方案对比与当前效果截图
 ## 常见问题
 
 - **点击开始没反应**：先看主页日志里的环境自检结果（依赖、驱动、浏览器、写入权限），再确认设置页已保存账号信息；必要时用管理员权限运行
-- **驱动版本不匹配**：程序会比对浏览器与驱动的版本号，不一致时自动改用在线获取的驱动；仍失败时下载与 Edge 主版本一致的 msedgedriver，在设置页指定路径
+- **驱动版本不匹配**：程序会比对浏览器与驱动的版本号；内置驱动按主版本放在 `task/tool/edge_driver/<主版本>/` 里，装哪个主版本就用哪个，对不上时自动改用在线获取的驱动。仍失败时下载与 Edge 主版本一致的 msedgedriver，在设置页指定路径
 - **视频卡住**：确认浏览器窗口没被最小化，程序会自动刷新重试
 - **题目答不对**：答案来自题库与 AI，仅供参考，可在「题库查询」里查看命中过的题目
 - **人脸采集弹窗不消失**：程序会先试一次「软校验」——把遮罩藏掉，观察 12 秒：弹窗被服务端推回或视频停住，就说明是强制采集，只能本人用学习通 APP 扫码，程序等 120 秒后跳过该课程并记到「刷课日志」；遮罩没回弹且播放继续，则按已跳过处理。日志里搜「软校验」能看到是哪一种，失败时还会打印当前 URL 与 iframe src，方便换入口排查
