@@ -154,6 +154,21 @@ class DriverMatrixTests(unittest.TestCase):
         self.assertEqual(source, "bundled")
         self.assertEqual(path, str(matrix))
 
+    def test_chinese_browser_option_treated_as_edge(self):
+        """设置页存的是「不指定浏览器」，不能因此当成未知浏览器去联网取驱动。"""
+        matrix = self._make_driver("156")
+        with mock.patch.object(browser_module, "browser_version", return_value="156.0.4314.50"):
+            source, path = browser_module.resolve_driver("不指定浏览器", "")
+        self.assertEqual(source, "bundled")
+        self.assertEqual(path, str(matrix))
+
+    def test_unreadable_browser_version_uses_bundled_driver(self):
+        matrix = self._make_driver("157")
+        with mock.patch.object(browser_module, "browser_version", return_value=None):
+            source, path = browser_module.resolve_driver("edge", "")
+        self.assertEqual(source, "bundled")
+        self.assertEqual(path, str(matrix))
+
 
 class DriverStateTests(unittest.TestCase):
     def test_state_reports_versions_and_match(self):

@@ -176,6 +176,15 @@ def _pick_by_major(installed) -> Path | None:
     return drivers.get(str(major[0]))
 
 
+def _any_bundled() -> Path | None:
+    """随便挑一个自带驱动：主版本号最大的优先，老扁平布局最后兜底。"""
+    drivers = bundled_drivers()
+    majors = [name for name in drivers if name.isdigit()]
+    if majors:
+        return drivers[max(majors, key=int)]
+    return drivers.get("flat")
+
+
 def resolve_driver(browser: str, driver_path: str = "") -> tuple[str, str]:
     """决定用哪个驱动。
 
@@ -193,12 +202,21 @@ def resolve_driver(browser: str, driver_path: str = "") -> tuple[str, str]:
             path = (ROOT / path).resolve()
         if path.is_file():
             return "custom", str(path)
-    if (browser or "").lower() == "chrome":
+    name = (browser or "").lower()
+    if name not in BROWSER_PATHS:
+        # 设置页里存的是「不指定浏览器」这类中文选项，按 Edge 处理
+        name = "edge"
+    if name == "chrome":
         return "manager", ""
-    installed = browser_version(browser or "edge")
+    installed = browser_version(name)
     matched = _pick_by_major(installed)
     if matched is not None:
         return "bundled", str(matched)
+    if not installed:
+        # 读不到浏览器版本（没装 / 权限受限）时，有内置驱动就直接用，别去联网
+        fallback = _any_bundled()
+        if fallback is not None:
+            return "bundled", str(fallback)
     if not BUNDLED_DRIVER.is_file():
         return "manager", ""
     if installed:

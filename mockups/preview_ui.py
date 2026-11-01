@@ -12,6 +12,9 @@ from __future__ import annotations
 import ctypes
 import os
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from version import APP_VERSION  # noqa: E402
 import time
 import tkinter as tk
 from pathlib import Path
@@ -125,7 +128,7 @@ def sidebar(root, active="home"):
     txt.pack(side="left", padx=(10, 0))
     ctk.CTkLabel(txt, text="课业助手", font=F(13, "bold"), text_color=INK,
                  anchor="w").pack(anchor="w")
-    ctk.CTkLabel(txt, text="v1.0.0", font=F(10), text_color=INK_4,
+    ctk.CTkLabel(txt, text=f"v{APP_VERSION}", font=F(10), text_color=INK_4,
                  anchor="w").pack(anchor="w")
 
     def group(title, items, top=22):
@@ -322,7 +325,7 @@ def preview_a(root):
     lh.pack(fill="x", padx=16, pady=(12, 8))
     ctk.CTkLabel(lh, text="运行日志", font=F(12, "bold"), text_color=INK).pack(side="left")
     ctk.CTkLabel(lh, text="● 实时", font=F(10), text_color=OK).pack(side="left", padx=(10, 0))
-    ctk.CTkLabel(lh, text="版本 1.0.0 · 断点 已完成 · 缓存 121 条", font=F(10),
+    ctk.CTkLabel(lh, text=f"版本 {APP_VERSION} · 断点 已完成 · 缓存 121 条", font=F(10),
                  text_color=INK_4).pack(side="left", padx=(14, 0))
     ctk.CTkLabel(lh, text="清空", font=F(10), text_color=INK_4).pack(side="right")
     tk.Frame(logcard, height=1, bg=LINE_SOFT).pack(fill="x")
