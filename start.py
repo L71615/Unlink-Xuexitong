@@ -162,8 +162,17 @@ class App:
     # 窗口
     # ------------------------------------------------------------------
     def _center(self, width: int, height: int) -> None:
-        screen_w = self.root.winfo_screenwidth()
-        screen_h = self.root.winfo_screenheight()
+        """按系统缩放把窗口收进屏幕，高 DPI（125%/150%/200%）下也能完整显示。"""
+        scale = 1.0
+        try:
+            scale = float(self.root._get_window_scaling() or 1.0)
+        except Exception:
+            scale = 1.0
+        # winfo_screenwidth 是物理像素，geometry 用的是缩放后的逻辑像素
+        screen_w = int(self.root.winfo_screenwidth() / scale)
+        screen_h = int(self.root.winfo_screenheight() / scale)
+        width = min(width, max(screen_w - 60, 880))
+        height = min(height, max(screen_h - 80, 600))
         x = max((screen_w - width) // 2, 0)
         y = max((screen_h - height) // 2 - 20, 0)
         self.root.geometry(f"{width}x{height}+{x}+{y}")
