@@ -36,13 +36,13 @@ jobs:
       - name: 单元测试
         run: python -m pytest tests -q
 
-      - name: 打包（含两个主版本的 Edge 驱动）
-        run: python build_exe.py --fetch-drivers 156,155
+      - name: 打包
+        run: python build_exe.py
 
       - name: 压缩
         shell: pwsh
         run: |
-          $zip = "课业助手-${{ steps.version.outputs.APP_VERSION }}-win64.zip"
+          $zip = "CourseHelper-${{ steps.version.outputs.APP_VERSION }}-win64.zip"
           Compress-Archive -Path "dist/课业助手/*" -DestinationPath $zip
           "ZIP_NAME=$zip" >> $env:GITHUB_OUTPUT
         id: zip

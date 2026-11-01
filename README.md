@@ -10,7 +10,7 @@
 
 ## 下载即用（不需要装 Python）
 
-1. 打开 [Releases](https://github.com/L71615/Unlink-Xuexitong/releases)，下载最新的 `课业助手-1.1.0-win64.zip`。
+1. 打开 [Releases](https://github.com/L71615/Unlink-Xuexitong/releases)，下载最新的 `CourseHelper-1.1.0-win64.zip`。
 2. 解压到任意目录（整个文件夹一起解压，别只把 exe 拖出来）。
 3. 双击 `课业助手.exe`，第一次启动会自动检查环境。
 
