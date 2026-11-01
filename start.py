@@ -123,7 +123,7 @@ class App:
         self.root = ctk.CTk()
         self.root.configure(fg_color=theme.BG)
         self.root.title(f"{APP_NAME} {self.version}")
-        self.root.minsize(1080, 720)
+        self.root.minsize(1080, 740)
         self._center(1200, 780)
         self._set_icon()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)

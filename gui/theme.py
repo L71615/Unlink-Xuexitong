@@ -7,18 +7,44 @@ import tkinter.font as tkfont
 import customtkinter as ctk
 
 # ---------------- 基础色 ----------------
-BG = "#F6F7F9"          # 窗口底色
+BG = "#F3F5F9"          # 窗口底色
 PANEL = "#FFFFFF"       # 卡片
-LINE = "#E8EAEE"        # 分隔线 / 边框
-LINE_SOFT = "#F1F3F6"   # 更淡的分隔
-TEXT = "#12161C"        # 主文字
-TEXT_SOFT = "#4D545E"   # 次级文字
-MUTED = "#7A828E"       # 说明文字
-FAINT = "#9AA1AB"       # 更淡的说明
+SIDEBAR = "#FAFBFD"     # 侧栏
+SURFACE = "#F8FAFC"     # 卡片内的浅底区域
+LINE = "#E6E9F0"        # 分隔线 / 边框
+LINE_SOFT = "#F1F3F7"   # 更淡的分隔
+TEXT = "#101828"        # 主文字
+TEXT_SOFT = "#475467"   # 次级文字
+MUTED = "#667085"       # 说明文字
+FAINT = "#98A2B3"       # 更淡的说明
 
-OK = "#2FA36B"
-WARN = "#D98324"
-DANGER = "#D64545"
+OK = "#16A34A"
+WARN = "#D97706"
+DANGER = "#DC2626"
+
+# 深色主视觉
+HERO = "#0D1B2E"
+HERO_2 = "#16263D"
+HERO_LINE = "#2A3B55"
+HERO_TEXT = "#F8FAFC"
+HERO_MUTED = "#9FB0C9"
+
+# ---------------- 尺寸节奏 ----------------
+RADIUS = 12          # 卡片
+RADIUS_SM = 9        # 按钮 / 小标签
+RADIUS_XS = 8        # 胶囊
+PAGE_PAD = 28        # 页面左右留白
+GAP = 16             # 栏间距
+LOG_BG = "#FCFDFE"   # 日志区底色（白卡里略深一点，压住边界）
+BAR_TRACK = "#E7EBF2"
+
+# 补充色：弱底、成功底、滚动条
+WEAK = "#F2F4F8"        # 胶囊 / 弱标记底
+OK_WEAK = "#EDF8F1"     # 成功标记底
+SCROLL = "#D9DFEA"      # 滚动条
+SCROLL_HOVER = "#C4CCDA"
+TRACK = "#EEF1F5"       # CTk 组件默认浅底
+WHITE = "#FFFFFF"
 
 # 主题色：(强调色, 浅底)
 ACCENTS = {
@@ -61,6 +87,8 @@ _state = {
     "size": 13,
     "accent": DEFAULT_ACCENT,
     "icon_family": None,
+    "resolved_family": None,
+    "resolved_name": "",
 }
 
 
@@ -69,6 +97,7 @@ def configure(family: str | None = None, size: int | None = None,
     """启动时调用一次，把用户设置灌进来。"""
     if family:
         _state["family"] = family
+        _state["resolved_family"] = None
     if size:
         _state["size"] = int(size)
     if accent in ACCENTS:
@@ -97,7 +126,23 @@ def base_size() -> int:
 
 
 def ui_family() -> str:
-    return _state["family"]
+    """返回本机真实可用的字体族（Tk 只认注册名，不认识英文别名时会静默回退）。"""
+    family = _state["family"]
+    if _state["resolved_family"] == family:
+        return _state["resolved_name"]
+    resolved = family
+    try:
+        families = set(tkfont.families())
+    except Exception:
+        families = set()
+    if families and family not in families:
+        for alias in UI_FAMILIES:
+            if alias in families:
+                resolved = alias
+                break
+    _state["resolved_family"] = family
+    _state["resolved_name"] = resolved
+    return resolved
 
 
 def icon_family() -> str:

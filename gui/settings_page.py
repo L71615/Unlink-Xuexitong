@@ -81,13 +81,15 @@ class SettingsPage(ctk.CTkFrame):
         self.grid_rowconfigure(1, weight=1)
 
         header = PageHeader(self, "设置", "配置保存在 task/tool/account_info.json")
-        header.grid(row=0, column=0, sticky="ew", padx=30, pady=(24, 0))
+        header.grid(row=0, column=0, sticky="ew",
+                    padx=(theme.PAGE_PAD, theme.PAGE_PAD + 6), pady=(22, 0))
         primary_button(header.right, "保存设置", self.save, icon="save").pack(side="right")
 
         body = ctk.CTkScrollableFrame(self, fg_color="transparent",
                                       scrollbar_button_color=theme.LINE,
                                       scrollbar_button_hover_color=theme.FAINT)
-        body.grid(row=1, column=0, sticky="nsew", padx=24, pady=(10, 16))
+        body.grid(row=1, column=0, sticky="nsew",
+                  padx=(theme.PAGE_PAD - 6, theme.PAGE_PAD + 6), pady=(10, 16))
         body.grid_columnconfigure(0, weight=1, uniform="col")
         body.grid_columnconfigure(1, weight=1, uniform="col")
 

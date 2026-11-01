@@ -43,10 +43,10 @@ class RecordPage(ctk.CTkFrame):
         self.grid_rowconfigure(2, weight=1)
 
         PageHeader(self, self._title, self._subtitle).grid(
-            row=0, column=0, sticky="ew", padx=30, pady=(24, 0))
+            row=0, column=0, sticky="ew", padx=theme.PAGE_PAD, pady=(22, 0))
 
         bar = Card(self)
-        bar.grid(row=1, column=0, sticky="ew", padx=30, pady=(16, 0))
+        bar.grid(row=1, column=0, sticky="ew", padx=theme.PAGE_PAD, pady=(16, 0))
         bar.grid_columnconfigure(0, weight=1)
 
         self.course = ctk.CTkComboBox(
@@ -76,7 +76,7 @@ class RecordPage(ctk.CTkFrame):
             self.progress_wrap.grid_remove()
 
         card = Card(self)
-        card.grid(row=2, column=0, sticky="nsew", padx=30, pady=(16, 22))
+        card.grid(row=2, column=0, sticky="nsew", padx=theme.PAGE_PAD, pady=(16, 22))
         card.grid_columnconfigure(0, weight=1)
         card.grid_rowconfigure(0, weight=1)
 
@@ -177,15 +177,15 @@ class QuestionBankPage(ctk.CTkFrame):
         self.grid_rowconfigure(2, weight=1)
 
         header = PageHeader(self, "题库查询", "答题时命中过的题目会缓存在本地")
-        header.grid(row=0, column=0, sticky="ew", padx=30, pady=(24, 0))
+        header.grid(row=0, column=0, sticky="ew", padx=theme.PAGE_PAD, pady=(22, 0))
         ghost_button(header.right, "刷新", self.refresh).pack(side="right", padx=(8, 0))
         ghost_button(header.right, "清空缓存", self._clear, icon="delete").pack(side="right")
 
         self.summary = Hint(self, "")
-        self.summary.grid(row=1, column=0, sticky="w", padx=30, pady=(12, 0))
+        self.summary.grid(row=1, column=0, sticky="w", padx=theme.PAGE_PAD, pady=(12, 0))
 
         card = Card(self)
-        card.grid(row=2, column=0, sticky="nsew", padx=30, pady=(10, 22))
+        card.grid(row=2, column=0, sticky="nsew", padx=theme.PAGE_PAD, pady=(12, 22))
         card.grid_columnconfigure(0, weight=1)
         card.grid_rowconfigure(0, weight=1)
         self.text = ctk.CTkTextbox(card, font=theme.font(11), fg_color=theme.PANEL,
@@ -247,15 +247,15 @@ class ErrorPage(ctk.CTkFrame):
         self.grid_rowconfigure(2, weight=1)
 
         header = PageHeader(self, "报错日志", "程序运行中的异常会记录在这里")
-        header.grid(row=0, column=0, sticky="ew", padx=30, pady=(24, 0))
+        header.grid(row=0, column=0, sticky="ew", padx=theme.PAGE_PAD, pady=(22, 0))
         ghost_button(header.right, "刷新", self.refresh).pack(side="right", padx=(8, 0))
         ghost_button(header.right, "清空", self._clear, icon="delete").pack(side="right")
 
         self.summary = Hint(self, "")
-        self.summary.grid(row=1, column=0, sticky="w", padx=30, pady=(12, 0))
+        self.summary.grid(row=1, column=0, sticky="w", padx=theme.PAGE_PAD, pady=(12, 0))
 
         card = Card(self)
-        card.grid(row=2, column=0, sticky="nsew", padx=30, pady=(10, 22))
+        card.grid(row=2, column=0, sticky="nsew", padx=theme.PAGE_PAD, pady=(12, 22))
         card.grid_columnconfigure(0, weight=1)
         card.grid_rowconfigure(0, weight=1)
         self.text = ctk.CTkTextbox(card, font=theme.font(10.5, mono=True),
@@ -299,11 +299,11 @@ class HelpPage(ctk.CTkFrame):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
         header = PageHeader(self, "帮助", "常见问题与使用说明")
-        header.grid(row=0, column=0, sticky="ew", padx=30, pady=(24, 0))
+        header.grid(row=0, column=0, sticky="ew", padx=theme.PAGE_PAD, pady=(22, 0))
         if self._on_check is not None:
             ghost_button(header.right, "环境检查", self._on_check).pack(side="right")
         card = Card(self)
-        card.grid(row=1, column=0, sticky="nsew", padx=30, pady=(16, 22))
+        card.grid(row=1, column=0, sticky="nsew", padx=theme.PAGE_PAD, pady=(16, 22))
         card.grid_columnconfigure(0, weight=1)
         card.grid_rowconfigure(0, weight=1)
         self.text = ctk.CTkTextbox(card, font=theme.font(11), fg_color=theme.PANEL,
