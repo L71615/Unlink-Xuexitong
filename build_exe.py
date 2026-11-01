@@ -24,6 +24,13 @@ from version import APP_VERSION, EXE_NAME, version_tuple
 ROOT = Path(__file__).resolve().parent
 ASSETS = ROOT / "build_assets"
 
+# GitHub Actions 的控制台是 cp1252，直接 print 中文会 UnicodeEncodeError
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 TOOL_FILES = ("Help.txt", "font_dict.txt", "version_info", "account_info.example.json")
 CRX_FILES = ("speed.crx", "chrome-extension.crx")
 
