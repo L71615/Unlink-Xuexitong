@@ -37,7 +37,7 @@ jobs:
         run: python -m pytest tests -q
 
       - name: 打包
-        run: python build_exe.py
+        run: python build_exe.py --fetch-drivers 157
 
       - name: 压缩
         shell: pwsh

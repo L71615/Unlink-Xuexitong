@@ -16,7 +16,7 @@
 
 首次运行 Windows 可能弹蓝色 SmartScreen 提示，点「更多信息」→「仍要运行」即可（exe 没有买代码签名证书）。
 
-程序调用的是你电脑上已装的 Microsoft Edge，请保证 Edge 是正常安装的版本。包内自带 156 主版本的 Edge 驱动；Edge 自动升级到别的主版本时，程序会先找 `task/tool/edge_driver/<主版本>/` 下有没有对应驱动，没有就联网用 Selenium Manager 取一个。
+程序调用的是你电脑上已装的 Microsoft Edge，请保证 Edge 是正常安装的版本。包内自带 156、157 两个主版本的 Edge 驱动；Edge 是别的主版本时，程序会先找 `task/tool/edge_driver/<主版本>/` 下有没有对应驱动，没有就联网用 Selenium Manager 取一个。
 
 想自己改代码 / 从源码运行，看下面的「安装」与「运行」。
 
