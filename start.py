@@ -30,9 +30,8 @@ from gui.sidebar import Sidebar
 from gui.sign_window import SignWindow
 from gui.timer_window import TimerWindow
 from gui.user_notice import UserNotice
+from version import APP_NAME, APP_VERSION
 
-APP_NAME = "课业助手"
-APP_VERSION = "1.0.0"
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 COUR_BACKUP = os.path.join("task", "tool", "cour_backup.json")
 

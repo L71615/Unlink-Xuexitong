@@ -17,9 +17,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+from version import APP_VERSION, EXE_NAME, version_tuple
+
 ROOT = Path(__file__).resolve().parent
-APP_NAME = "CourseHelper"
-APP_VERSION = "1.0.0"
 ASSETS = ROOT / "build_assets"
 
 TOOL_FILES = ("Help.txt", "font_dict.txt", "version_info", "account_info.example.json")
@@ -55,10 +55,11 @@ def make_icon(path: Path) -> None:
 
 
 def make_version_file(path: Path) -> None:
-    content = """VSVersionInfo(
+    major, minor, patch, build = version_tuple()
+    content = f"""VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 0, 0, 0),
-    prodvers=(1, 0, 0, 0),
+    filevers=({major}, {minor}, {patch}, {build}),
+    prodvers=({major}, {minor}, {patch}, {build}),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -70,12 +71,12 @@ def make_version_file(path: Path) -> None:
     StringFileInfo([
       StringTable('080404b0', [
         StringStruct('CompanyName', 'L71615'),
-        StringStruct('FileDescription', '课业助手'),
-        StringStruct('FileVersion', '1.0.0'),
+        StringStruct('FileDescription', '{EXE_NAME}'),
+        StringStruct('FileVersion', '{APP_VERSION}'),
         StringStruct('InternalName', 'CourseHelper'),
-        StringStruct('OriginalFilename', 'CourseHelper.exe'),
-        StringStruct('ProductName', '课业助手'),
-        StringStruct('ProductVersion', '1.0.0')
+        StringStruct('OriginalFilename', '{EXE_NAME}.exe'),
+        StringStruct('ProductName', '{EXE_NAME}'),
+        StringStruct('ProductVersion', '{APP_VERSION}')
       ])
     ]),
     VarFileInfo([VarStruct('Translation', [2052, 1200])])
@@ -112,6 +113,8 @@ def stage_assets() -> Path:
 
     # 空的进度文件，避免首次运行缺少 course_process.json
     (tool_dst / "course_process.json").write_text("{}", encoding="utf-8")
+    # 版本号单一来源：界面上显示的版本与 exe 属性一致
+    (tool_dst / "version_info").write_text(APP_VERSION + "\n", encoding="utf-8")
     return task_dst
 
 
@@ -127,13 +130,14 @@ def main() -> int:
         sys.executable, "-m", "PyInstaller",
         "--noconfirm", "--clean",
         "--onefile", "--windowed",
-        "--name", APP_NAME,
+        "--name", EXE_NAME,
         "--icon", str(icon),
         "--version-file", str(version_file),
         "--add-data", f"{data_dir};task",
         "--collect-all", "customtkinter",
         "--collect-all", "selenium",
         "--hidden-import", "main",
+        "--hidden-import", "version",
         "--hidden-import", "task",
         "--hidden-import", "task.xxt",
         "--hidden-import", "Crypto",
@@ -148,7 +152,7 @@ def main() -> int:
         print("打包失败")
         return result.returncode
 
-    exe = ROOT / "dist" / f"{APP_NAME}.exe"
+    exe = ROOT / "dist" / f"{EXE_NAME}.exe"
     if exe.exists():
         print(f"已生成：{exe}（{exe.stat().st_size / 1024 / 1024:.1f} MB）")
     return 0

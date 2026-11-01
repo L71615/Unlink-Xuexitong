@@ -1,6 +1,11 @@
 """配置读写管理器，统一管理 account_info.json 和 course_name.json 的读写"""
 import json
 
+try:  # 版本号以 version.py 为准；被单独引用时也不至于炸
+    from version import APP_VERSION as _APP_VERSION
+except Exception:  # pragma: no cover - 极少数脱离项目根的调用场景
+    _APP_VERSION = ""
+
 class ConfigManager:
     ACCOUNT_PATH = r'task/tool/account_info.json'
     COURSE_PATH = r'task/tool/course_name.json'
@@ -53,6 +58,8 @@ class ConfigManager:
 
     # ========== 便捷方法 ==========
     def get_version(self) -> str:
+        if _APP_VERSION:
+            return _APP_VERSION
         try:
             with open(self.VERSION_PATH, 'r', encoding='utf-8') as f:
                 return f.read().strip()
