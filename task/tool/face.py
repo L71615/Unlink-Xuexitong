@@ -26,6 +26,24 @@ class FaceRequired(Exception):
 
 MANUAL_SCAN_TIMEOUT = 120  # 等待本人扫码的秒数
 
+# 软校验：先隐藏遮罩，观察服务端会不会把弹窗推回来、视频还走不走
+SOFT_DISMISS_HOLD = 12
+SOFT_DISMISS_POLL = 1.0
+
+_HIDE_MASK_JS = """
+var list = document.querySelectorAll('.chapterVideoFaceMaskDiv,.maskDiv,.chapterVideoFaceQrMaskDiv');
+for (var i = 0; i < list.length; i++) {
+    list[i].setAttribute('data-shuake-hidden', '1');
+    list[i].style.display = 'none';
+}
+return list.length;
+"""
+
+_PLAY_TIME_JS = """
+var el = document.querySelector('.vjs-current-time-display');
+return el ? (el.textContent || '').trim() : null;
+"""
+
 FACE_POPUP_SELECTORS = (
     ".chapterVideoFaceMaskDiv",     # 视频弹窗
     ".maskDiv",                     # 章节页/入口采集弹窗
@@ -69,6 +87,63 @@ def _wait_popup_gone(driver, timeout, poll=2.0):
             return True
         time.sleep(min(poll, max(0.0, deadline - time.time())))
     return _visible_face_popup(driver)[0] is None
+
+
+def _play_time(driver):
+    """当前视频播放时间文本；不在视频页时返回 None"""
+    try:
+        return driver.execute_script(_PLAY_TIME_JS)
+    except Exception:
+        return None
+
+
+def soft_dismiss_face_popup(driver, hold=SOFT_DISMISS_HOLD, poll=SOFT_DISMISS_POLL):
+    """软校验：隐藏遮罩，看服务端会不会把弹窗推回来、视频还走不走。
+
+    - 遮罩藏掉后 hold 秒内没被重新显示，且（有进度条时）播放时间在走 → True；
+    - 弹窗被推回 / 播放卡在同一个时间 / 取不到结论 → False，调用方继续人工扫码。
+    """
+    if driver is None or not hasattr(driver, 'execute_script'):
+        return False
+
+    start_time = _play_time(driver)
+    deadline = time.time() + hold
+    while time.time() < deadline:
+        try:
+            driver.execute_script(_HIDE_MASK_JS)
+        except Exception as e:
+            print(color.yellow(f'移除遮罩失败: {e}'), flush=True)
+            return False
+        time.sleep(min(poll, max(0.0, deadline - time.time())))
+
+    if _visible_face_popup(driver)[0] is not None:
+        print(color.yellow('遮罩被服务端重新推回，软校验不成立'), flush=True)
+        return False
+
+    end_time = _play_time(driver)
+    if start_time and end_time and start_time == end_time:
+        print(color.yellow('遮罩已移除但视频没有继续播放，软校验不成立'), flush=True)
+        return False
+
+    print(color.green('遮罩移除后未回弹，播放继续'), flush=True)
+    return True
+
+
+def dump_face_context(driver):
+    """打印当前 URL 与 iframe src，换入口/抓包排查时用"""
+    try:
+        print(f'[诊断] 当前 URL: {driver.current_url}', flush=True)
+    except Exception:
+        pass
+    try:
+        for i, frame in enumerate(driver.find_elements(By.TAG_NAME, 'iframe')):
+            try:
+                src = frame.get_attribute('src')
+            except Exception:
+                continue
+            print(f'[诊断] iframe[{i}] src={src}', flush=True)
+    except Exception:
+        pass
 
 
 def wait_for_manual_scan(driver, timeout=MANUAL_SCAN_TIMEOUT, poll=2.0):
@@ -655,6 +730,7 @@ def delete_face_popup(driver, pass_face, class_name='', manual_wait=None, auto_v
     - 自动流程成功且弹窗真的关闭：直接继续；
     - 自动流程成功但弹窗还在（章节页采集）：提示本人扫码，最多等 120 秒；
     - 自动流程失败：同样只等待本人扫码，不再走 check_face/删弹窗/递归；
+    - 等人工之前先做一次软校验：隐藏遮罩，看服务端是否推回、视频是否继续；
     - 等待超时：抛 FaceRequired，调用方停止本课程，避免刷新出新二维码死循环。
     """
     if driver is None:
@@ -687,4 +763,11 @@ def delete_face_popup(driver, pass_face, class_name='', manual_wait=None, auto_v
     else:
         print(color.yellow('自动处理没有通过，需要本人完成采集'), flush=True)
 
+    # 软校验：如果只是前端遮罩，藏掉后服务端不推回、视频继续，就按跳过处理
+    if soft_dismiss_face_popup(driver):
+        print(color.green('该采集不是强制的，已跳过（遮罩未回弹）'), flush=True)
+        return True
+
+    print(color.yellow('软校验不成立，需要本人完成采集'), flush=True)
+    dump_face_context(driver)
     return _manual_scan_or_raise(driver, manual_wait)

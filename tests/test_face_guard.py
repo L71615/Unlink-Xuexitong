@@ -47,6 +47,41 @@ class FakeClock:
         self.now += seconds
 
 
+class ScriptableDriver(FakeDriver):
+    """带 execute_script 的驱动：模拟“藏遮罩后是否回弹 / 播放是否继续”。"""
+
+    def __init__(self, present=True, hide_works=True, times=("00:00", "00:05")):
+        super().__init__(present=present)
+        self.hide_works = hide_works
+        self.times = list(times)
+        self.calls = 0
+
+    def execute_script(self, script, *args):
+        self.calls += 1
+        if "vjs-current-time-display" in script:
+            return self.times[0] if self.calls == 1 else self.times[-1]
+        if self.hide_works:
+            self.present = False
+        return 1
+
+
+class SoftDismissTests(unittest.TestCase):
+    def test_true_when_mask_stays_hidden_and_playback_continues(self):
+        driver = ScriptableDriver()
+        self.assertTrue(face.soft_dismiss_face_popup(driver, hold=2))
+
+    def test_false_when_server_pushes_mask_back(self):
+        driver = ScriptableDriver(hide_works=False)
+        self.assertFalse(face.soft_dismiss_face_popup(driver, hold=2))
+
+    def test_false_when_playback_is_frozen(self):
+        driver = ScriptableDriver(times=("00:05", "00:05"))
+        self.assertFalse(face.soft_dismiss_face_popup(driver, hold=2))
+
+    def test_driver_without_execute_script_is_not_soft_dismissed(self):
+        self.assertFalse(face.soft_dismiss_face_popup(FakeDriver(present=True)))
+
+
 class FaceGuardTests(unittest.TestCase):
     def setUp(self):
         self.clock = FakeClock()
@@ -95,6 +130,13 @@ class FaceGuardTests(unittest.TestCase):
         driver = FakeDriver(present=True)
         with self.assertRaises(face.FaceRequired):
             self._call(driver, ok=False, manual_wait=0.2)
+
+    def test_auto_fail_but_soft_dismiss_succeeds(self):
+        self.assertTrue(self._call(ScriptableDriver(), ok=False, manual_wait=5))
+
+    def test_soft_dismiss_fails_then_manual_timeout(self):
+        with self.assertRaises(face.FaceRequired):
+            self._call(ScriptableDriver(hide_works=False), ok=False, manual_wait=0.2)
 
     def test_auto_success_but_popup_stays_then_manual_scan(self):
         driver = FakeDriver(present=True, flip_after=3)
