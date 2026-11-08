@@ -35,6 +35,7 @@ dist_old/
 *.zip
 probe/
 debug/
+runtime/
 .remote/
 .edge*/
 .assets_version

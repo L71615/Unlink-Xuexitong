@@ -19,7 +19,10 @@ from __future__ import annotations
 
 import ctypes
 import os
+import shutil
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 def _app_root() -> Path:
@@ -35,6 +38,84 @@ DRIVER_DIR = ROOT / "task" / "tool" / "edge_driver"
 BUNDLED_DRIVER = DRIVER_DIR / "msedgedriver.exe"
 SPEED_EXTENSION = ROOT / "task" / "tool" / "speed.crx"
 EXTENSION = ROOT / "task" / "tool" / "chrome-extension.crx"
+
+# 运行期目录：浏览器配置、临时文件都放这里，不再依赖系统的 %TEMP%
+RUNTIME_DIR = ROOT / "runtime"
+PROFILE_ROOT = RUNTIME_DIR / "profile"
+TEMP_FALLBACK = RUNTIME_DIR / "tmp"
+
+
+def _writable_dir(path: Path) -> bool:
+    """能建目录、能写文件才算可用（权限不足、磁盘只读时返回 False）。"""
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / f".write_test_{os.getpid()}"
+        probe.write_bytes(b"1")
+        probe.unlink()
+        return True
+    except OSError:
+        return False
+
+
+def runtime_dir() -> Path:
+    """软件自己的运行目录：优先 exe 旁边的 runtime/，不行再退到 %LOCALAPPDATA%。"""
+    candidates = [RUNTIME_DIR]
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        candidates.append(Path(local) / "课业助手" / "runtime")
+    for path in candidates:
+        if _writable_dir(path):
+            return path
+    return RUNTIME_DIR
+
+
+def ensure_temp_dir() -> Path:
+    """%TEMP% 失效时（指向已删除的目录、无写权限）重定向到软件自己的 tmp。
+
+    浏览器的子进程（msedge.exe）要用系统临时目录建会话，TEMP 一旦不可写就会报
+    ``session not created: cannot create temp dir for user data dir``。
+    """
+    current = Path(tempfile.gettempdir())
+    if _writable_dir(current):
+        return current
+    fallback = runtime_dir() / "tmp"
+    if _writable_dir(fallback):
+        os.environ["TEMP"] = os.environ["TMP"] = str(fallback)
+        tempfile.tempdir = str(fallback)
+        return fallback
+    return current
+
+
+def _prune_profiles(root: Path, keep_hours: float = 6.0) -> None:
+    """清掉上一次运行留下的浏览器配置目录（还在用的不动）。"""
+    cutoff = time.time() - keep_hours * 3600
+    try:
+        for item in root.iterdir():
+            try:
+                if item.is_dir() and item.stat().st_mtime < cutoff:
+                    shutil.rmtree(item, ignore_errors=True)
+            except OSError:
+                continue
+    except OSError:
+        return
+
+
+def make_profile_dir(name: str) -> Path:
+    """每次运行一个新的配置目录，避免沿用默认 profile 把上个账号的会话带进来。"""
+    root = runtime_dir() / "profile"
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        root = Path(tempfile.mkdtemp(prefix="coursehelper_profile_"))
+        return root
+    _prune_profiles(root)
+    label = "chrome" if name == "chrome" else "edge"
+    try:
+        return Path(tempfile.mkdtemp(prefix=f"{label}_", dir=str(root)))
+    except OSError:
+        fallback = Path(tempfile.mkdtemp(prefix=f"{label}_profile_"))
+        return fallback
+
 
 BROWSER_PATHS = {
     "edge": (
@@ -271,8 +352,14 @@ def create_driver(browser: str, driver_path: str = "", speed="1", headless: bool
             os.environ["SE_MANAGER_PATH"] = str(manager)
         service = Service()
 
+    ensure_temp_dir()
+    profile_dir = make_profile_dir(name)
     options = Options()
     options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument(f"--user-data-dir={profile_dir}")
+    options.add_argument(f"--disk-cache-dir={profile_dir / 'cache'}")
+    options.add_argument("--no-first-run")
+    options.add_argument("--no-default-browser-check")
     if str(speed) != "1" and SPEED_EXTENSION.is_file():
         options.add_extension(str(SPEED_EXTENSION))
     if EXTENSION.is_file():
@@ -281,9 +368,13 @@ def create_driver(browser: str, driver_path: str = "", speed="1", headless: bool
     if headless:
         options.add_argument("--headless=new")
 
-    if name == "chrome":
-        driver = webdriver.Chrome(service=service, options=options)
-    else:
-        driver = webdriver.Edge(service=service, options=options)
+    try:
+        if name == "chrome":
+            driver = webdriver.Chrome(service=service, options=options)
+        else:
+            driver = webdriver.Edge(service=service, options=options)
+    except Exception as exc:
+        shutil.rmtree(profile_dir, ignore_errors=True)
+        raise RuntimeError(f"浏览器启动失败（配置目录 {profile_dir}）：{exc}") from exc
     driver.implicitly_wait(2)
     return driver

@@ -634,7 +634,13 @@ def start_browser(browser,driver_path,speed):
         print(color.green(f"使用指定驱动：{state['driver_path']}"), flush=True)
     else:
         print(color.yellow('内置驱动与当前浏览器版本不匹配，改为自动获取驱动'), flush=True)
-    return browser_module.create_driver(browser, driver_path, speed)
+    try:
+        return browser_module.create_driver(browser, driver_path, speed)
+    except Exception as exc:
+        print(color.red(f'浏览器启动失败：{exc}'), flush=True)
+        print(color.yellow('可依次尝试：关闭多余的浏览器窗口后重试；把软件整个文件夹换个位置（如 D:\\课业助手）再运行；'
+                           '临时目录被安全软件拦住时，可先清空 %TEMP% 里的 scoped_dir* 目录；仍不行就以管理员身份运行'), flush=True)
+        raise
 
 def main(browser, driver_path, phone_number, password, choice, course_lst,API,after_finish_question,
          lock_screen,speed, task_type,homework,pass_face,video_title_choice,discussion_choice,pass_vido):
