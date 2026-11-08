@@ -46,12 +46,17 @@ TEMP_FALLBACK = RUNTIME_DIR / "tmp"
 
 
 def _writable_dir(path: Path) -> bool:
-    """能建目录、能写文件才算可用（权限不足、磁盘只读时返回 False）。"""
+    """真能在这里建子目录、写文件才算可用。
+
+    只测「写文件」不够：有的机器（安全软件、组策略、被改过的 ACL）允许写文件却
+    拒绝建文件夹，而浏览器恰恰要在临时目录里建子目录来解包扩展、放会话数据。
+    """
     try:
         path.mkdir(parents=True, exist_ok=True)
-        probe = path / f".write_test_{os.getpid()}"
-        probe.write_bytes(b"1")
-        probe.unlink()
+        probe = path / f".dir_test_{os.getpid()}"
+        probe.mkdir()
+        (probe / "probe.txt").write_bytes(b"1")
+        shutil.rmtree(probe, ignore_errors=True)
         return True
     except OSError:
         return False
@@ -70,10 +75,12 @@ def runtime_dir() -> Path:
 
 
 def ensure_temp_dir() -> Path:
-    """%TEMP% 失效时（指向已删除的目录、无写权限）重定向到软件自己的 tmp。
+    """%TEMP% 建不了目录时，重定向到软件自己的 tmp。
 
-    浏览器的子进程（msedge.exe）要用系统临时目录建会话，TEMP 一旦不可写就会报
-    ``session not created: cannot create temp dir for user data dir``。
+    浏览器（msedgedriver / msedge.exe）在系统临时目录里建 ``scoped_dir*`` 放会话
+    数据、解包扩展；TEMP 一旦不可用就报 ``cannot create temp dir for user data
+    dir`` 或 ``cannot create temp dir for unpacking extensions``。这里同时改
+    ``os.environ``，子进程（驱动、浏览器）会继承。
     """
     current = Path(tempfile.gettempdir())
     if _writable_dir(current):
@@ -84,6 +91,14 @@ def ensure_temp_dir() -> Path:
         tempfile.tempdir = str(fallback)
         return fallback
     return current
+
+
+def child_env() -> dict:
+    """给驱动 / 浏览器子进程用的环境变量：TEMP 一定要是可建目录的位置。"""
+    env = dict(os.environ)
+    temp = ensure_temp_dir()
+    env["TEMP"] = env["TMP"] = str(temp)
+    return env
 
 
 def _prune_profiles(root: Path, keep_hours: float = 6.0) -> None:
@@ -331,6 +346,24 @@ def driver_state(browser: str = "", driver_path: str = "") -> dict:
     }
 
 
+def _build_options(Options, profile_dir: Path, speed, headless: bool, with_extensions: bool = True):
+    options = Options()
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument(f"--user-data-dir={profile_dir}")
+    options.add_argument(f"--disk-cache-dir={profile_dir / 'cache'}")
+    options.add_argument("--no-first-run")
+    options.add_argument("--no-default-browser-check")
+    if with_extensions:
+        if str(speed) != "1" and SPEED_EXTENSION.is_file():
+            options.add_extension(str(SPEED_EXTENSION))
+        if EXTENSION.is_file():
+            options.add_extension(str(EXTENSION))
+        options.add_argument("--enable-extensions")
+    if headless:
+        options.add_argument("--headless=new")
+    return options
+
+
 def create_driver(browser: str, driver_path: str = "", speed="1", headless: bool = False):
     """建 webdriver：驱动按 :func:`resolve_driver` 选，扩展用绝对路径。"""
     name = (browser or "").lower()
@@ -342,39 +375,36 @@ def create_driver(browser: str, driver_path: str = "", speed="1", headless: bool
         from selenium.webdriver.edge.service import Service
     from selenium import webdriver
 
+    env = child_env()
     source, path = resolve_driver(browser, driver_path)
     if source in ("custom", "bundled"):
-        service = Service(path)
+        service = Service(path, env=env)
     else:
         from selenium.webdriver.common import selenium_manager
         manager = Path(selenium_manager.__file__).parent / "windows" / "selenium-manager.exe"
         if manager.is_file():
             os.environ["SE_MANAGER_PATH"] = str(manager)
-        service = Service()
+        service = Service(env=env)
 
-    ensure_temp_dir()
     profile_dir = make_profile_dir(name)
-    options = Options()
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_argument(f"--user-data-dir={profile_dir}")
-    options.add_argument(f"--disk-cache-dir={profile_dir / 'cache'}")
-    options.add_argument("--no-first-run")
-    options.add_argument("--no-default-browser-check")
-    if str(speed) != "1" and SPEED_EXTENSION.is_file():
-        options.add_extension(str(SPEED_EXTENSION))
-    if EXTENSION.is_file():
-        options.add_extension(str(EXTENSION))
-    options.add_argument("--enable-extensions")
-    if headless:
-        options.add_argument("--headless=new")
+
+    def start(with_extensions: bool):
+        options = _build_options(Options, profile_dir, speed, headless, with_extensions)
+        if name == "chrome":
+            return webdriver.Chrome(service=service, options=options)
+        return webdriver.Edge(service=service, options=options)
 
     try:
-        if name == "chrome":
-            driver = webdriver.Chrome(service=service, options=options)
-        else:
-            driver = webdriver.Edge(service=service, options=options)
+        try:
+            driver = start(True)
+        except Exception as exc:
+            # 扩展解包要用临时目录；临时目录建不了子目录时（安全软件 / ACL）就退回不带扩展启动
+            if "unpacking extensions" not in str(exc):
+                raise
+            print("扩展解包失败（临时目录不可建子目录），改为不加载扩展启动", flush=True)
+            driver = start(False)
     except Exception as exc:
         shutil.rmtree(profile_dir, ignore_errors=True)
-        raise RuntimeError(f"浏览器启动失败（配置目录 {profile_dir}）：{exc}") from exc
+        raise RuntimeError(f"浏览器启动失败（配置目录 {profile_dir}，临时目录 {env.get('TEMP')}）：{exc}") from exc
     driver.implicitly_wait(2)
     return driver

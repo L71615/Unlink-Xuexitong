@@ -10,7 +10,7 @@
 
 ## 下载即用（不需要装 Python）
 
-1. 打开 [Releases](https://github.com/L71615/Unlink-Xuexitong/releases)，下载最新的 `CourseHelper-1.1.2-win64.zip`。
+1. 打开 [Releases](https://github.com/L71615/Unlink-Xuexitong/releases)，下载最新的 `CourseHelper-1.1.3-win64.zip`。
 2. 解压到任意目录（整个文件夹一起解压，别只把 exe 拖出来）。
 3. 双击 `课业助手.exe`，第一次启动会自动检查环境。
 
@@ -124,6 +124,12 @@ mockups/                 界面设计稿、方案对比与当前效果截图
 ```
 
 ## 更新日志
+
+### 1.1.3
+
+- **修 1.1.2 之后出现的 `cannot create temp dir for unpacking extensions`**：临时目录的可用性判断从「能写文件」升级为「能建子目录」（有些机器允许写文件、却拒绝建文件夹），不可用时自动切到 `runtime/tmp/`，并把 `TEMP` / `TMP` 显式传给驱动与浏览器子进程
+- **扩展解包失败自动降级**：临时目录建不了子目录时，先提示一句，再以「不加载扩展」的方式重启浏览器，至少能把课刷完
+- **报错信息带路径**：启动失败时同时打印配置目录与当时使用的临时目录，方便判断是哪一处不可写
 
 ### 1.1.2
 
