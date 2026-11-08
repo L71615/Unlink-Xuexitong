@@ -10,7 +10,7 @@
 
 ## 下载即用（不需要装 Python）
 
-1. 打开 [Releases](https://github.com/L71615/Unlink-Xuexitong/releases)，下载最新的 `CourseHelper-1.1.3-win64.zip`。
+1. 打开 [Releases](https://github.com/L71615/Unlink-Xuexitong/releases)，下载最新的 `CourseHelper-1.1.4-win64.zip`。
 2. 解压到任意目录（整个文件夹一起解压，别只把 exe 拖出来）。
 3. 双击 `课业助手.exe`，第一次启动会自动检查环境。
 
@@ -124,6 +124,13 @@ mockups/                 界面设计稿、方案对比与当前效果截图
 ```
 
 ## 更新日志
+
+### 1.1.4
+
+- **修启动后第一页就 `tab crashed`**：1.1.3 的「扩展解包失败 → 不带扩展重启」这一步沿用了同一个 `--user-data-dir`，上一轮没退干净的 Edge 还占着它，新会话的渲染进程会直接崩；现在每次重试都用**全新配置目录**
+- **加了一道启动自检**：建好会话先真加载一次页面，崩了就换参数重来，不会把坏会话交给你
+- **崩溃自动降级启动**：第 3 次尝试带上 `--no-sandbox --disable-gpu --disable-features=RendererCodeIntegrity`，专治安全软件 / 受限账户下渲染进程起不来
+- **运行中崩了也能续**：登录阶段或刷课中途遇到内核崩溃，会自动重开浏览器从当前课程继续，不再整轮退出
 
 ### 1.1.3
 

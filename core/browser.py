@@ -346,8 +346,27 @@ def driver_state(browser: str = "", driver_path: str = "") -> dict:
     }
 
 
-def _build_options(Options, profile_dir: Path, speed, headless: bool, with_extensions: bool = True):
+CRASH_MARKS = (
+    "tab crashed",
+    "session deleted",
+    "invalid session id",
+    "chrome not reachable",
+    "disconnected",
+    "cannot connect to chrome",
+)
+
+
+def looks_crashed(exc) -> bool:
+    """判断异常是不是浏览器内核直接崩了（tab crashed 这类）。"""
+    msg = str(exc).lower()
+    return any(mark in msg for mark in CRASH_MARKS)
+
+
+def _build_options(Options, profile_dir: Path, speed, headless: bool,
+                   with_extensions: bool = True, extra: tuple = ()):
     options = Options()
+    for flag in extra:
+        options.add_argument(flag)
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument(f"--user-data-dir={profile_dir}")
     options.add_argument(f"--disk-cache-dir={profile_dir / 'cache'}")
@@ -386,25 +405,55 @@ def create_driver(browser: str, driver_path: str = "", speed="1", headless: bool
             os.environ["SE_MANAGER_PATH"] = str(manager)
         service = Service(env=env)
 
-    profile_dir = make_profile_dir(name)
+    last_profile: Path | None = None
 
-    def start(with_extensions: bool):
-        options = _build_options(Options, profile_dir, speed, headless, with_extensions)
+    def launch(with_extensions: bool, extra: tuple = ()):
+        """用全新配置目录起一个会话，并立刻做一次真实页面加载自检。
+
+        自检很重要：扩展解包失败时上一轮的 Edge 进程可能还活着，
+        沿用同一个 ``--user-data-dir`` 会让新会话的渲染进程直接崩掉
+        （报 tab crashed）。所以每次尝试都用新目录，自检没通过就清掉重来。
+        """
+        nonlocal last_profile
+        profile = make_profile_dir(name)
+        last_profile = profile
+        options = _build_options(Options, profile, speed, headless, with_extensions, extra)
         if name == "chrome":
-            return webdriver.Chrome(service=service, options=options)
-        return webdriver.Edge(service=service, options=options)
-
-    try:
+            drv = webdriver.Chrome(service=service, options=options)
+        else:
+            drv = webdriver.Edge(service=service, options=options)
         try:
-            driver = start(True)
+            drv.get("data:text/html,<title>ok</title>")
+        except Exception:
+            try:
+                drv.quit()
+            except Exception:
+                pass
+            shutil.rmtree(profile, ignore_errors=True)
+            raise
+        drv.implicitly_wait(2)
+        return drv
+
+    plans: list[tuple[bool, tuple]] = [
+        (True, ()),
+        (False, ()),
+        (False, ("--no-sandbox", "--disable-gpu", "--disable-features=RendererCodeIntegrity")),
+    ]
+    last: Exception | None = None
+    for index, (with_extensions, extra) in enumerate(plans):
+        try:
+            return launch(with_extensions, extra)
         except Exception as exc:
-            # 扩展解包要用临时目录；临时目录建不了子目录时（安全软件 / ACL）就退回不带扩展启动
-            if "unpacking extensions" not in str(exc):
-                raise
-            print("扩展解包失败（临时目录不可建子目录），改为不加载扩展启动", flush=True)
-            driver = start(False)
-    except Exception as exc:
-        shutil.rmtree(profile_dir, ignore_errors=True)
-        raise RuntimeError(f"浏览器启动失败（配置目录 {profile_dir}，临时目录 {env.get('TEMP')}）：{exc}") from exc
-    driver.implicitly_wait(2)
-    return driver
+            last = exc
+            text = str(exc)
+            if with_extensions and "unpacking extensions" in text:
+                # 扩展解包要用临时目录；建不了子目录时（安全软件 / ACL）直接退回不带扩展
+                print("扩展解包失败（临时目录不可建子目录），改为不加载扩展启动", flush=True)
+                continue
+            if looks_crashed(exc) and index < len(plans) - 1:
+                print("浏览器内核启动后立即崩溃（tab crashed），正在换一套启动参数重试", flush=True)
+                continue
+            raise RuntimeError(
+                f"浏览器启动失败（配置目录 {last_profile}，临时目录 {env.get('TEMP')}）：{exc}") from exc
+    raise RuntimeError(
+        f"浏览器启动失败（配置目录 {last_profile}，临时目录 {env.get('TEMP')}）：{last}") from last

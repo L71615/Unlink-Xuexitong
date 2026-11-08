@@ -642,6 +642,27 @@ def start_browser(browser,driver_path,speed):
                            '临时目录被安全软件拦住时，可先清空 %TEMP% 里的 scoped_dir* 目录；仍不行就以管理员身份运行'), flush=True)
         raise
 
+def open_browser_and_login(browser, driver_path, speed, phone_number, password):
+    """启动浏览器并登录；内核崩溃（tab crashed）时换一套全新配置重开一次。"""
+    driver = start_browser(browser, driver_path, speed)
+    try:
+        login_study(driver, phone_number, password)
+        return driver
+    except PageStructureError:
+        raise
+    except Exception as exc:
+        if not browser_module.looks_crashed(exc):
+            raise
+        print(color.yellow('浏览器内核崩溃（tab crashed），正在用全新配置重开一次...'), flush=True)
+        try:
+            driver.quit()
+        except Exception:
+            pass
+        driver = start_browser(browser, driver_path, speed)
+        login_study(driver, phone_number, password)
+        return driver
+
+
 def main(browser, driver_path, phone_number, password, choice, course_lst,API,after_finish_question,
          lock_screen,speed, task_type,homework,pass_face,video_title_choice,discussion_choice,pass_vido):
     global RESUME, error_num
@@ -654,15 +675,14 @@ def main(browser, driver_path, phone_number, password, choice, course_lst,API,af
         print(color.green(f'断点续刷：本次跳过 {len(course_lst) - len(pending)} 门已完成的课程'), flush=True)
     if RESUME.status(pending[0]) == 'running':
         print(color.green(f'断点续刷：从上次中断的《{pending[0]}》继续'), flush=True)
-    driver = start_browser(browser, driver_path,speed)
-    # time.sleep(20)
     try:
-        login_study(driver, phone_number, password)
+        driver = open_browser_and_login(browser, driver_path, speed, phone_number, password)
     except PageStructureError as exc:
         print(color.red(f'登录失败：{exc}，本次运行结束'), flush=True)
         return
     for course_name in pending:
         error_num = 0
+        recovered = False
         RESUME.touch(course_name)
         choice_course(driver, course_name, speed,  task_type,phone_number)
         turn_page(driver, course_name)
@@ -683,6 +703,15 @@ def main(browser, driver_path, phone_number, password, choice, course_lst,API,af
             print(color.red(f'《{course_name}》{exc}，已跳过该课程'), flush=True)
             mission_ok = None
         except Exception as exc:
+            if browser_module.looks_crashed(exc) and not recovered:
+                recovered = True
+                print(color.yellow('浏览器内核崩溃，正在重开后续刷这门课...'), flush=True)
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
+                driver = open_browser_and_login(browser, driver_path, speed, phone_number, password)
+                continue
             dump_debug(driver, 'find_mission_error')
             RESUME.mark_error(course_name, f'页面异常:{exc}'[:60])
             print(color.red(f'《{course_name}》页面处理异常，已跳过该课程：{exc}'), flush=True)
@@ -709,8 +738,19 @@ def main(browser, driver_path, phone_number, password, choice, course_lst,API,af
                 continue
             fold(driver)
             pyautogui.hotkey('ctrl', 'm')
-            result = run(driver, choice, course_name, API, lock_screen, pass_face,video_title_choice,discussion_choice,
-                         after_finish_question,pass_vido,speed)
+            try:
+                result = run(driver, choice, course_name, API, lock_screen, pass_face,video_title_choice,discussion_choice,
+                             after_finish_question,pass_vido,speed)
+            except Exception as exc:
+                if browser_module.looks_crashed(exc):
+                    RESUME.mark_error(course_name, '浏览器内核崩溃')
+                    print(color.red(f'《{course_name}》浏览器内核崩溃，已跳过该课程'), flush=True)
+                else:
+                    RESUME.mark_error(course_name, f'运行异常:{exc}'[:60])
+                    print(color.red(f'《{course_name}》运行异常，已跳过该课程：{exc}'), flush=True)
+                driver.close()
+                turn_page(driver, '个人空间')
+                continue
             if result == 'done':
                 RESUME.mark_done(course_name)
                 print(color.green(f'《{course_name}》已标记完成，下次启动会自动跳过'), flush=True)
