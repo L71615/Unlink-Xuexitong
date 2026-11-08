@@ -5,6 +5,7 @@
 
 #打包python -m PyInstaller --onefile --collect-all selenium main.py
 import json
+import os
 import re
 import time
 import traceback
@@ -16,7 +17,7 @@ from selenium.webdriver import ActionChains
 from selenium.webdriver.common.by import By
 
 from task.tool.common import save_process
-from task.tool.face import get_cookie,auto_login_with_cookies,delete_face_popup,FaceRequired
+from task.tool.face import get_cookie,delete_face_popup,FaceRequired
 from task.tool.speed_control import apply_speed
 from task.finish_dicussion import finish_discussion
 from task.play_audio import play_audio
@@ -32,6 +33,136 @@ from core.resume import Resume
 from core import browser as browser_module
 error_num=0#错误次数
 RESUME=None#断点续刷记录器，在 main() 里初始化
+
+
+class PageStructureError(Exception):
+    """页面结构与脚本预期不符：登录态没建立、账号/课程模板不同、页面没加载完。"""
+
+
+def dump_debug(driver, tag='error'):
+    """把出错现场（截图 + HTML + 关键计数）存到 debug/ 目录，方便自己排查。"""
+    import datetime
+    base = os.path.join('debug', datetime.datetime.now().strftime('%Y%m%d_%H%M%S') + '_' + tag)
+    try:
+        os.makedirs(base, exist_ok=True)
+    except Exception:
+        return ''
+    try:
+        with open(os.path.join(base, 'info.txt'), 'w', encoding='utf-8') as handle:
+            handle.write(f'url={driver.current_url}\ntitle={driver.title}\n')
+            handle.write(f'nav_content={len(driver.find_elements(By.CLASS_NAME, "nav_content"))}\n')
+            handle.write(f'data-nav-name={len(driver.find_elements(By.CSS_SELECTOR, "[data-nav-name]"))}\n')
+            try:
+                handle.write('body=\n' + driver.find_element(By.TAG_NAME, 'body').text[:3000])
+            except Exception as exc:
+                handle.write(f'body_error={exc}\n')
+            try:
+                frames = [(frame.get_attribute('id') or '', (frame.get_attribute('src') or '')[:100])
+                          for frame in driver.find_elements(By.TAG_NAME, 'iframe')]
+                handle.write(f'\niframes={frames}\n')
+            except Exception:
+                pass
+    except Exception:
+        pass
+    try:
+        with open(os.path.join(base, 'page.html'), 'w', encoding='utf-8') as handle:
+            handle.write(driver.page_source)
+    except Exception:
+        pass
+    try:
+        driver.save_screenshot(os.path.join(base, 'shot.png'))
+    except Exception:
+        pass
+    print(color.yellow(f'本次现场已保存到 {base}（含截图与页面源码）'), flush=True)
+    return base
+
+
+def current_account(driver):
+    """读取当前登录身份（uid + 昵称），用于发现多个账号登录态串号。"""
+    uid = ''
+    try:
+        for cookie in driver.get_cookies():
+            if cookie.get('name') in ('_uid', 'UID') and cookie.get('value'):
+                uid = cookie['value']
+                break
+    except Exception:
+        pass
+    name = ''
+    for selector in ('.user-name', '.userName', '#userName', '.user_info .name', '.userInfo .name'):
+        try:
+            for element in driver.find_elements(By.CSS_SELECTOR, selector):
+                text = (element.text or '').strip()
+                if text:
+                    name = text
+                    break
+        except Exception:
+            continue
+        if name:
+            break
+    return f'{name or "未知昵称"} (uid={uid or "未知"})'
+
+
+def _on_unit_page(driver):
+    """登录后是否停在“选择单位/机构”页。"""
+    try:
+        title = driver.title or ''
+        url = driver.current_url or ''
+    except Exception:
+        return False
+    return ('单位' in title or '机构' in title or 'unit' in url.lower() or 'choose' in url.lower())
+
+
+def handle_unit_select(driver, timeout=10):
+    """多单位/多机构账号登录后会自动选第一个单位，避免卡在切换页。"""
+    end = time.time() + timeout
+    while time.time() < end:
+        for selector in ('.unit-list li', '[class*="unitList"] li', '[class*="unit"] li', '.organization li'):
+            try:
+                for element in driver.find_elements(By.CSS_SELECTOR, selector):
+                    if (element.text or '').strip():
+                        driver.execute_script("arguments[0].click();", element)
+                        time.sleep(2)
+                        return True
+            except Exception:
+                continue
+        time.sleep(0.5)
+    return False
+
+
+def click_course_nav(driver, target, timeout=15):
+    """点课程页的“章节/作业”导航，兼容新版泛雅、老版学习通和纯文字导航。"""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        for selector in ('div.nav_content', 'a.nav_content', '.nav_content', 'li.nav_content'):
+            try:
+                for element in driver.find_elements(By.CSS_SELECTOR, selector):
+                    text = (element.text or '').strip()
+                    if text and (text == target or target in text):
+                        driver.execute_script("arguments[0].click();", element)
+                        time.sleep(1)
+                        return True
+            except Exception:
+                pass
+        try:
+            for element in driver.find_elements(By.CSS_SELECTOR, '[data-nav-name]'):
+                name = (element.get_attribute('data-nav-name') or '').strip()
+                if name and (name == target or target in name):
+                    driver.execute_script("arguments[0].click();", element)
+                    time.sleep(1)
+                    return True
+        except Exception:
+            pass
+        try:
+            for element in driver.find_elements(By.XPATH, f"//*[normalize-space(text())='{target}']"):
+                driver.execute_script("arguments[0].click();", element)
+                time.sleep(1)
+                return True
+        except Exception:
+            pass
+        time.sleep(1)
+    if target != '章节':
+        return click_course_nav(driver, '章节', timeout=5)
+    return False
 
 
 def current_chapter(driver):
@@ -53,8 +184,14 @@ def login_study(driver,phone_number,password):
     无。
     """
     # 打开网页
-    driver.get("https:i.chaoxing.com/")
+    driver.get("https://i.chaoxing.com/")
     turn_page(driver,'用户登录')
+    # 每次启动都是全新的临时浏览器配置，先清空 cookie，避免上一个账号的登录态串进来
+    try:
+        driver.delete_all_cookies()
+        driver.get("https://i.chaoxing.com/")
+    except Exception:
+        pass
     print(color.green('正在登录中...'), flush=True)
     # 自动登录
     element = driver.find_element(By.ID, 'phone')
@@ -68,15 +205,40 @@ def login_study(driver,phone_number,password):
         login_button.click()
     except:
         pass
-    time.sleep(3)
-    if not auto_login_with_cookies(driver):
-        print(color.red('登陆失败，请打开手机端学习通，扫码登录'), flush=True)
-        while driver.title=='用户登录':
-            time.sleep(1)
-    if get_cookie(driver):
-        print(color.green('登录成功'), flush=True)
+
+    # 等到真正离开登录页为止（最多 180 秒，期间可手动扫码或完成短信验证）
+    deadline = time.time() + 180
+    warned = False
+    while time.time() < deadline:
+        try:
+            url = driver.current_url or ''
+            title = driver.title or ''
+        except Exception:
+            break
+        if any(mark in url for mark in ('passport', 'verify', 'captcha')):
+            if not warned:
+                print(color.yellow('需要安全验证：请在浏览器窗口内完成短信/滑块验证，脚本会等待'), flush=True)
+                warned = True
+        elif '登录' not in title and all(mark not in url for mark in
+                                       ('login', 'passport', 'verify', 'captcha')):
+            # 多单位账号会停在“选择单位/机构”页，自动选第一个
+            if _on_unit_page(driver) and handle_unit_select(driver):
+                time.sleep(2)
+                continue
+            break
+        time.sleep(1)
     else:
-        return
+        dump_debug(driver, 'login_timeout')
+        print(color.red('登录未完成（可能需要扫码、验证码或选择单位），请重新运行'), flush=True)
+        raise PageStructureError('登录未完成')
+
+    who = current_account(driver)
+    if 'uid=未知' in who:
+        dump_debug(driver, 'login_no_uid')
+        print(color.red(f'登录态未建立，请重新运行（当前页面：{driver.title}）'), flush=True)
+        raise PageStructureError('登录态未建立')
+    print(color.green(f'登录成功：{who}'), flush=True)
+    get_cookie(driver, account=phone_number)
     # 转到页面内窗口
 
 
@@ -243,14 +405,10 @@ def find_mission(driver,task_type,speed,course_name):
     except:
         pass
     experience(driver)
-    # 点击章节/作业标签
-    elements=driver.find_elements(By.CLASS_NAME, 'nav_content')
-    if not elements:
-       driver.find_element(By.CSS_SELECTOR, "li[data-nav-name='章节']").click()
-    for element in elements:
-        if element.text== task_type:
-            element.click()
-            break
+    # 点击章节/作业标签：新版泛雅、老版学习通、纯文字导航都能命中
+    if not click_course_nav(driver, task_type):
+        dump_debug(driver, 'no_nav')
+        raise PageStructureError(f'当前页面没有“{task_type}”导航')
     try:
         driver.switch_to.frame(driver.find_element(By.TAG_NAME, 'iframe'))
     except NoSuchElementException:
@@ -492,7 +650,11 @@ def main(browser, driver_path, phone_number, password, choice, course_lst,API,af
         print(color.green(f'断点续刷：从上次中断的《{pending[0]}》继续'), flush=True)
     driver = start_browser(browser, driver_path,speed)
     # time.sleep(20)
-    login_study(driver, phone_number, password)
+    try:
+        login_study(driver, phone_number, password)
+    except PageStructureError as exc:
+        print(color.red(f'登录失败：{exc}，本次运行结束'), flush=True)
+        return
     for course_name in pending:
         error_num = 0
         RESUME.touch(course_name)
@@ -508,7 +670,24 @@ def main(browser, driver_path, phone_number, password, choice, course_lst,API,af
             turn_page(driver, '个人空间')
             continue
 
-        if find_mission(driver,task_type,speed,course_name):
+        try:
+            mission_ok = find_mission(driver,task_type,speed,course_name)
+        except PageStructureError as exc:
+            RESUME.mark_error(course_name, str(exc)[:60])
+            print(color.red(f'《{course_name}》{exc}，已跳过该课程'), flush=True)
+            mission_ok = None
+        except Exception as exc:
+            dump_debug(driver, 'find_mission_error')
+            RESUME.mark_error(course_name, f'页面异常:{exc}'[:60])
+            print(color.red(f'《{course_name}》页面处理异常，已跳过该课程：{exc}'), flush=True)
+            mission_ok = None
+
+        if mission_ok is None:
+            driver.close()
+            turn_page(driver, '个人空间')
+            continue
+
+        if mission_ok:
             if task_type=='作业':
                 do_work(driver,course_name,homework,API)
                 return
@@ -639,7 +818,7 @@ def run_main():
     except SessionNotCreatedException as e:
         error_msg = traceback.format_exc()
         send_error(
-            "\n出错了，可以把下面这段报错和截图发到 numaforbus@gmail.com 或 QQ 2023114826 反馈\n" + error_msg)
+            "\n【运行出错】详细信息已写入 error.log（可在软件“日志”页查看）\n" + error_msg)
         # 执行分析
         result = parse_versions_from_text(error_msg)
 
@@ -649,12 +828,12 @@ def run_main():
         else:
             print(color.red('❌ 出错了，具体原因请前往错误日志查看'),flush=True)
             error_msg = traceback.format_exc()
-            send_error("\n出错了，可以把下面这段报错和截图发到 numaforbus@gmail.com 或 QQ 2023114826 反馈\n"+error_msg)
+            send_error("\n【运行出错】详细信息已写入 error.log（可在软件“日志”页查看）\n"+error_msg)
     except PermissionError:
         print(color.red('请关闭该窗口后，再右键点击刷课程序用管理员权限打开'))
     except Exception as e:
         error_msg = traceback.format_exc()
-        send_error("\n出错了，可以把下面这段报错和截图发到 numaforbus@gmail.com 或 QQ 2023114826 反馈\n"+error_msg)
+        send_error("\n【运行出错】详细信息已写入 error.log（可在软件“日志”页查看）\n"+error_msg)
         print(color.red('❌ 出错了，具体原因请前往错误日志查看'),flush=True)
 
 if __name__ == '__main__':

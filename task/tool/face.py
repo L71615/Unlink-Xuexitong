@@ -146,6 +146,44 @@ def dump_face_context(driver):
         pass
 
 
+_DIRECT_VIDEO_JS = """
+var out = null;
+var frames = document.querySelectorAll('iframe');
+for (var i = 0; i < frames.length; i++) {
+    var s = frames[i].getAttribute('src') || '';
+    if (s.indexOf('/ananas/modules/video/') >= 0) {
+        try { out = new URL(s, location.href).href; } catch (e) { out = s; }
+        break;
+    }
+}
+return out;
+"""
+
+
+def direct_video_url(driver):
+    """当前章节页里任务点视频 iframe 的绝对地址；取不到返回 None。
+
+    换入口排查用：这个地址直接 driver.get() 打开，可以绕开章节容器页的采集入口。
+    """
+    try:
+        return driver.execute_script(_DIRECT_VIDEO_JS)
+    except Exception:
+        return None
+
+
+def _beep(times=2):
+    """弹窗提醒：响一声，避免人不在电脑前干等 120 秒"""
+    try:
+        import winsound
+        for _ in range(max(1, times)):
+            winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+    except Exception:
+        try:
+            print('\a', end='', flush=True)
+        except Exception:
+            pass
+
+
 def wait_for_manual_scan(driver, timeout=MANUAL_SCAN_TIMEOUT, poll=2.0):
     """等待本人用学习通 APP 扫码完成采集；弹窗消失返回 True"""
     deadline = time.time() + timeout
@@ -181,9 +219,11 @@ def check_face(driver,face_url,face_class='popDiv wid640 faceCollectQrPop popCla
                 get_cookie(driver,file_name='face_cookies',course_name=course_name)
             break
 
-def get_cookie(driver,file_name='cookies',course_name=''):
+def get_cookie(driver,file_name='cookies',course_name='',account=''):
     try:
-        pickle.dump(driver.get_cookies(), open(rf'task/tool/{file_name}.pkl', 'wb'))
+        # 按账号分文件保存，避免换号时把上一个号的登录态带进来
+        name = f'{file_name}_{account}' if account else file_name
+        pickle.dump(driver.get_cookies(), open(rf'task/tool/{name}.pkl', 'wb'))
         if file_name=='face_cookies':
             with open(rf'task/tool/face_url.json', 'r', encoding='utf-8') as f:
                 data = json.load(f)
@@ -198,7 +238,7 @@ def get_cookie(driver,file_name='cookies',course_name=''):
         print(color.red(f'获取cookie失败'),flush=True)
         error_msg = traceback.format_exc()
         send_error(
-            "\n出错了，可以把下面这段报错和截图发到 numaforbus@gmail.com 或 QQ 2023114826 反馈\n" + error_msg)
+            "\n【运行出错】详细信息已写入 error.log（可在软件“日志”页查看）\n" + error_msg)
         return True
 
 def auto_login_with_cookies(driver,file_name='cookies', url='https://i.chaoxing.com',face_class='popDiv wid640 faceCollectQrPop popClass'):
@@ -260,7 +300,7 @@ def auto_login_with_cookies(driver,file_name='cookies', url='https://i.chaoxing.
         print(color.red(f"自动登录过程中出错"),flush=True)
         error_msg = traceback.format_exc()
         send_error(
-            "\n出错了，可以把下面这段报错和截图发到 numaforbus@gmail.com 或 QQ 2023114826 反馈\n" + error_msg)
+            "\n【运行出错】详细信息已写入 error.log（可在软件“日志”页查看）\n" + error_msg)
         return False
 
 class ChaoxingFaceBypass:
@@ -715,6 +755,12 @@ def _manual_scan_or_raise(driver, manual_wait=None) -> bool:
     print(color.yellow(
         f'请用手机学习通 APP 扫描浏览器里的二维码完成人脸采集，'
         f'最多等待 {int(timeout)} 秒...'), flush=True)
+    _beep(2)
+    url = direct_video_url(driver)
+    if url:
+        print(color.yellow(f'[换入口] 视频任务点直连地址：{url}'), flush=True)
+        print(color.yellow('[换入口] 想试绕过采集：把上面地址粘到同一个浏览器地址栏回车，'
+                           '看视频能不能正常播；能播就说明是页面级校验'), flush=True)
     if wait_for_manual_scan(driver, timeout):
         print(color.green('人脸采集已完成，继续刷课'), flush=True)
         return True

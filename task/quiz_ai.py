@@ -458,7 +458,7 @@ class Quiz(Common):
         except:
             error_msg = traceback.format_exc()
             send_error(
-                "\n出错了，可以把下面这段报错和截图发到 numaforbus@gmail.com 或 QQ 2023114826 反馈\n" + error_msg)
+                "\n【运行出错】详细信息已写入 error.log（可在软件“日志”页查看）\n" + error_msg)
             print(color.yellow('出错了，具体原因请前往错误日志查看，请自行保存或提交,15秒后继续'), flush=True)
             turn_page(self.driver,'学生学习页面')
             time.sleep(15)
@@ -480,7 +480,7 @@ def finish_quiz(driver, course_name, API, choice,after_finish_question):
     #     except:
     #         error_msg = traceback.format_exc()
     #         send_error(
-    #             "\n出错了，可以把下面这段报错和截图发到 numaforbus@gmail.com 或 QQ 2023114826 反馈\n" + error_msg)
+    #             "\n【运行出错】详细信息已写入 error.log（可在软件“日志”页查看）\n" + error_msg)
     #         print(color.yellow('出错了，具体原因请前往错误日志查看，请自行保存或提交,15秒后继续'), flush=True)
     #         turn_page(driver,'学生学习页面')
     #         time.sleep(15)

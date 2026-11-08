@@ -28,9 +28,13 @@ task/data/
 # 打包与临时产物
 build/
 build_assets/
+build_new/
 dist/
+dist_new/
+dist_old/
 *.zip
 probe/
+debug/
 .remote/
 .edge*/
 .assets_version
