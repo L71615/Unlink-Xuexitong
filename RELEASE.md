@@ -22,8 +22,8 @@
 4. 一次提交里既有修复又有功能 → 按**功能**算，进第二位。
 5. 纯文档/注释改动（README、本文件）**不发版**，版本号不动。
 
-> 当前：`1.1.4` = 主版本 1 / 功能版本 1 / 已修 4 个 bug。
-> 下一个 bug 修复是 `1.1.5`；下一个新功能（多账号切换）是 `1.2.0`。
+> 当前：`1.2.0` = 主版本 1 / 功能版本 2 / 修复版本 0。
+> 下一个 bug 修复是 `1.2.1`；下一个新功能是 `1.3.0`。
 
 ---
 
@@ -36,14 +36,14 @@
 ```powershell
 cd D:\Xuexitong_shuake
 $env:PYTHONIOENCODING='utf-8'
-python -m pytest -q          # 必须全绿，当前基线 103 passed
+python -m pytest -q          # 必须全绿，当前基线 114 passed
 ```
 
 ### 2. 改版本号
 
 - `version.py:10` → `APP_VERSION = "x.y.z"`
 - `README.md:13` 下载名 → `CourseHelper-x.y.z-win64.zip`
-- `README.md` 的「## 更新日志」顶部加一节 `### x.y.z`，写清改了什么、为什么改
+- **更新日志不写进 README / 本文件**：具体改动写在 Release 的说明里（见第 7 步），README 与本文只留 Releases 链接
 
 ### 3. 打包前先关掉旧进程
 
@@ -142,11 +142,9 @@ gh api repos/L71615/Unlink-Xuexitong/releases/tags/vx.y.z | ConvertFrom-Json |
 
 ## 五、版本历史
 
-| 版本 | 类型 | 内容 |
-|---|---|---|
-| 1.2.0 | 功能 | 多账号切换（DPAPI 存密码）、任务点级断点（章节/任务点/视频秒数）、进度不再编造、完成判定复核、人脸链路可诊断 + 补交 + 等待可调、清理全局 cookie 死代码 |
-| 1.1.4 | 修复 | 首次导航 `tab crashed`：每次重试换新配置目录、加启动自检、崩溃降级 `--no-sandbox`、中途崩溃可续 |
-| 1.1.3 | 修复 | `unpacking extensions` 失败：临时目录改为「能建子目录」判定、扩展解包失败自动降级 |
-| 1.1.2 | 修复 | `cannot create temp dir for user data dir`：配置目录改到 `runtime/profile/` |
-| 1.1.1 | 修复 | 换账号登录态串号、课程页导航定位、去掉程序内邮箱/QQ 反馈 |
-| 1.1.0 | 功能 | （历史基线） |
+版本历史与每个版本的具体改动**只写在 GitHub Releases**（每个 tag 的说明就是该版更新日志），本文件不再重复：
+
+- 全部版本：https://github.com/L71615/Unlink-Xuexitong/releases
+- 最新版本：https://github.com/L71615/Unlink-Xuexitong/releases/latest
+
+发版时把更新内容写进 Release 说明即可，不要回填到这里。
