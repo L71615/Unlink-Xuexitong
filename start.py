@@ -114,9 +114,7 @@ class App:
         self._recover_cour_backup()
         self.version = self.config.get_version()
 
-        theme.configure(self.account.get("font_type") or "Microsoft YaHei",
-                        self.account.get("font_size") or 13,
-                        self.account.get("accent") or theme.DEFAULT_ACCENT)
+        theme.configure("Microsoft YaHei", 13, theme.DEFAULT_ACCENT)
 
         ctk.set_appearance_mode("light")
         self.root = ctk.CTk()
@@ -145,6 +143,7 @@ class App:
         self._dismissed = set()            # 本次运行里被「忽略」的待处理课程
         self._sign_window = None
         self._tick_count = 0
+        self._login_proc = None
 
         self.timer_window = TimerWindow(self.root, self._on_timer_set,
                                         self._on_timer_cancel)
@@ -214,7 +213,8 @@ class App:
         self.home = HomePage(self.container, self.start, self.open_sign,
                              self.stop, self.clear_log,
                              on_retry=self.retry_course,
-                             on_dismiss=self.dismiss_pending)
+                             on_dismiss=self.dismiss_pending,
+                             on_login=self.login)
         self.records = RecordPage(self.container, self.config, "刷课", "刷课日志",
                                   "每完成一个任务点都会记在这里")
         self.scores = RecordPage(self.container, self.config, "成绩", "测试成绩",
@@ -265,20 +265,37 @@ class App:
         except Exception:
             return 0, 0
 
+    def _account_status(self) -> tuple[str, str]:
+        """主页顶部账号状态：（文字, 状态色）。"""
+        phone = (self.account or {}).get("phone_number", "")
+        if not phone:
+            return "未配置账号", "warn"
+        cookie = os.path.join("task", "tool", f"cookies_{phone}.pkl")
+        if os.path.exists(cookie):
+            return f"已登录 {phone}", "ok"
+        return f"待登录 {phone}", "idle"
+
     def _refresh_static(self) -> None:
         account = self.config.load_account() or {}
         self.account = account
+        phone = account.get("phone_number", "")
         self._all_courses = list(account.get("cour") or [])
-        self.sidebar.set_user(account.get("phone_number", ""))
+        self.sidebar.set_user(phone)
         self.home.set_version(self.version)
         self.home.set_cache(len(self._cache_files()))
         course = (account.get("cour") or [""])[0]
         done, total = self._course_process(course)
         self.home.set_course(course, done, total, account.get("task_type", "章节"))
-        self.home.set_resume(self._resume_text(course, account.get("phone_number", "")))
+        self.home.set_resume(self._resume_text(course, phone))
         self.home.set_metrics(done=0, elapsed=0, errors=0)
         self.home.set_chips(self.timer_active, self._chip_text())
         self.home.set_pending(self._pending_items())
+        # 课程勾选 + 账号状态 + 倍速（课程与倍速都在主页选）
+        names = self.config.load_courses(phone)
+        selected = [name for name in self._all_courses if name in names] or list(names)
+        self.home.set_course_options(names, selected)
+        self.home.set_account_status(*self._account_status())
+        self.home.set_speed(str(account.get("speed") or "1"))
 
     def _pending_items(self) -> list[tuple[str, str]]:
         phone = self.account.get("phone_number", "")
@@ -502,9 +519,18 @@ class App:
             return
         if self.running:
             return
-        self.account = account
-        phone = account.get("phone_number", "")
-        courses = account.get("cour") or []
+        courses = self.home.get_courses()
+        if not courses:
+            messagebox.showerror("还没有课程", "先点主页的「登录」，自动读取课程列表后勾选要刷的课")
+            return
+        speed = self.home.get_speed()
+        account["cour"] = courses
+        account["speed"] = str(speed)
+        if not self.config.save_account(account):
+            messagebox.showerror("保存失败", "配置写入失败，可能是文件被占用，稍后再试")
+            return
+        self.account = self.config.load_account() or {}
+        phone = self.account.get("phone_number", "")
         snapshot = resume_store.snapshot(phone)
         if courses and all(snapshot.get(name, {}).get("status") == "done" for name in courses):
             if auto:
@@ -528,8 +554,73 @@ class App:
         self._baseline_done = done
         self.home.set_running(True)
         self.home.set_pending([])          # 运行中先收起待处理卡片，结束后按最新断点恢复
-        self.log(f"开始刷课：{'、'.join(account.get('cour') or [])}", "ok")
+        self.log(f"开始刷课：{'、'.join(courses)}（{speed} 倍速）", "ok")
         threading.Thread(target=self._launch, daemon=True).start()
+
+    def login(self) -> None:
+        """主页「登录」：复用刷课时的登录逻辑，只把课程列表读回来。"""
+        if self.running or self._login_proc is not None:
+            return
+        account = self.config.load_account() or {}
+        if not account.get("phone_number") or not account.get("password"):
+            messagebox.showerror("还没配置", "请先到「设置」里填写账号和密码并保存")
+            self.show_page("settings")
+            return
+        self.home.set_login_running(True)
+        self.log("正在登录并读取课程列表，会自动打开浏览器…", "warn")
+        if getattr(sys, "frozen", False):
+            command = [sys.executable, "--worker", "--probe-courses"]
+        else:
+            command = [sys.executable, "main.py", "--probe-courses"]
+        env = dict(os.environ, PYTHONIOENCODING="utf-8")
+        try:
+            proc = subprocess.Popen(command, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, env=env)
+        except Exception as error:
+            self.home.set_login_running(False)
+            self.log(f"无法启动登录进程：{error}", "err")
+            return
+        self._login_proc = proc
+        threading.Thread(target=self._pump_login, args=(proc,), daemon=True).start()
+
+    def _pump_login(self, proc) -> None:
+        try:
+            for raw in iter(proc.stdout.readline, b""):
+                line = ANSI_RE.sub("", raw.decode("utf-8", "replace")).rstrip()
+                if not line.strip():
+                    continue
+                if "❌" in line:
+                    level = "err"
+                elif "读取到" in line or "登录成功" in line:
+                    level = "ok"
+                elif "⚠" in line or "正在" in line:
+                    level = "warn"
+                else:
+                    level = "normal"
+                self.log(line, level)
+        finally:
+            try:
+                proc.stdout.close()
+            except Exception:
+                pass
+            try:
+                proc.wait()
+            except Exception:
+                pass
+            self.root.after(0, self._login_finished)
+
+    def _login_finished(self) -> None:
+        self._login_proc = None
+        self.home.set_login_running(False)
+        account = self.config.load_account() or {}
+        phone = account.get("phone_number", "")
+        names = self.config.load_courses(phone)
+        self._all_courses = [name for name in (account.get("cour") or []) if name in names] or list(names)
+        self._refresh_static()
+        if names:
+            self.log(f"课程列表已更新，共 {len(names)} 门：勾选要刷的课，点「开始刷课」", "ok")
+        else:
+            self.log("没有读到课程：确认这个账号在学习通里确实有课程，或在网页上手动进入一次课程", "err")
 
     def _launch(self) -> None:
         try:
@@ -739,6 +830,8 @@ if __name__ == "__main__":
     if "--worker" in sys.argv:
         import main as worker
 
+        if "--probe-courses" in sys.argv:
+            sys.exit(worker.run_probe_courses())
         try:
             worker.run_main()
         except Exception:

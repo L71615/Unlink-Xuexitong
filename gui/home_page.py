@@ -14,6 +14,7 @@ from gui.widgets import (Card, Chip, ProgressBar, ghost_button, primary_button,
 
 LOG_FILE = Path(__file__).resolve().parent.parent / "输出记录.log"
 PLACEHOLDER = "还没有运行记录，点「开始刷课」开始"
+SPEEDS = ("1", "2", "3", "4", "5", "6", "8", "10", "16")
 
 
 class LogView(ctk.CTkFrame):
@@ -78,7 +79,7 @@ class LogView(ctk.CTkFrame):
 
 class HomePage(ctk.CTkFrame):
     def __init__(self, master, on_start, on_sign, on_stop, on_clear_log,
-                 on_retry=None, on_dismiss=None, **kwargs):
+                 on_retry=None, on_dismiss=None, on_login=None, **kwargs):
         kwargs.setdefault("fg_color", theme.BG)
         super().__init__(master, **kwargs)
         self._on_start = on_start
@@ -87,6 +88,7 @@ class HomePage(ctk.CTkFrame):
         self._on_clear_log = on_clear_log
         self._on_retry = on_retry
         self._on_dismiss = on_dismiss
+        self._on_login = on_login
 
         self._running = False
         self._done = 0
@@ -94,6 +96,10 @@ class HomePage(ctk.CTkFrame):
         self._version = "-"
         self._resume = "未开始"
         self._cache = 0
+        self._login_running = False
+        self._course_vars: dict[str, tk.BooleanVar] = {}
+        self._options_signature = None
+        self._speed_value = "1"
         self._build()
 
     # ------------------------------------------------------------------
@@ -120,6 +126,11 @@ class HomePage(ctk.CTkFrame):
 
         chips = ctk.CTkFrame(row, fg_color="transparent")
         chips.pack(side="right", anchor="s", pady=(0, 2))
+        self.chip_account = Chip(chips, "未配置账号")
+        self.chip_account.pack(side="left", padx=(0, 8))
+        self._login_btn = ghost_button(chips, "登录", self._on_login_click,
+                                       icon="sign", width=82)
+        self._login_btn.pack(side="left", padx=(0, 8))
         self.chip_timer = Chip(chips, "定时 未开启")
         self.chip_timer.pack(side="left")
 
@@ -238,6 +249,37 @@ class HomePage(ctk.CTkFrame):
         self._state_pill.pack(side="left", padx=(6, 0))
         self._ctrl_info.bind("<Configure>", self._on_info_resize)
 
+        pick = Card(right)
+        pick.pack(fill="x", pady=(theme.GAP, 0))
+
+        head = ctk.CTkFrame(pick, fg_color="transparent")
+        head.pack(fill="x", padx=16, pady=(12, 6))
+        ctk.CTkLabel(head, text="本次任务", font=theme.font(12, "bold"),
+                     text_color=theme.TEXT).pack(side="left")
+        self._course_count = ctk.CTkLabel(head, text="未选课程", font=theme.font(10),
+                                          text_color=theme.FAINT)
+        self._course_count.pack(side="left", padx=(8, 0))
+        text_button(head, "清空", self._clear_courses, height=24).pack(side="right")
+        text_button(head, "全选", self._select_all_courses, height=24).pack(
+            side="right", padx=(0, 6))
+        self._speed_box = ctk.CTkComboBox(head, values=list(SPEEDS), width=72,
+                                          state="readonly", font=theme.font(10),
+                                          dropdown_font=theme.font(10))
+        self._speed_box.set("1")
+        self._speed_box.pack(side="right", padx=(0, 14))
+        ctk.CTkLabel(head, text="倍速", font=theme.font(10),
+                     text_color=theme.MUTED).pack(side="right", padx=(0, 6))
+
+        ctk.CTkFrame(pick, height=1, fg_color=theme.LINE_SOFT,
+                     corner_radius=0).pack(fill="x")
+        self._course_box = ctk.CTkScrollableFrame(pick, height=104, fg_color="transparent",
+                                                  scrollbar_button_color=theme.LINE,
+                                                  scrollbar_button_hover_color=theme.MUTED)
+        self._course_box.pack(fill="x", padx=10, pady=(6, 10))
+        self._course_box.grid_columnconfigure(0, weight=1)
+        self._course_box.grid_columnconfigure(1, weight=1)
+        self.set_course_options([], [])
+
         log_card = Card(right)
         log_card.pack(fill="both", expand=True, pady=(theme.GAP, 0))
 
@@ -323,6 +365,91 @@ class HomePage(ctk.CTkFrame):
     # ------------------------------------------------------------------
     # 对外接口
     # ------------------------------------------------------------------
+    def set_account_status(self, text: str, state: str = "idle") -> None:
+        """顶部账号胶囊：state = ok / warn / idle。"""
+        color = {"ok": theme.OK, "warn": theme.DANGER}.get(state, theme.FAINT)
+        self.chip_account.set_state(text or "未配置账号", color=color)
+
+    def set_login_running(self, running: bool) -> None:
+        self._login_running = running
+        if running:
+            self._login_btn.configure(state="disabled", text="登录中…")
+        else:
+            self._login_btn.configure(state="disabled" if self._running else "normal",
+                                      text="登录")
+
+    def _on_login_click(self) -> None:
+        if self._login_running or self._on_login is None:
+            return
+        self._on_login()
+
+    def set_course_options(self, names, selected=None) -> None:
+        """刷新课程勾选列表；names 没变就不重建控件（避免定时刷新时闪烁）。"""
+        names = [name for name in (names or []) if name]
+        signature = tuple(names)
+        chosen = set(selected or [])
+        if signature == self._options_signature:
+            # 列表没变，只同步勾选状态（比如单门重试后回到原课程列表）
+            if chosen:
+                for name, var in self._course_vars.items():
+                    var.set(name in chosen)
+                self._update_course_count()
+            return
+        self._options_signature = signature
+        for child in self._course_box.winfo_children():
+            child.destroy()
+        self._course_vars = {}
+        if not names:
+            ctk.CTkLabel(self._course_box, text="点上方「登录」读取课程列表",
+                         font=theme.font(10), text_color=theme.FAINT, anchor="w").grid(
+                row=0, column=0, columnspan=2, sticky="w", padx=8, pady=6)
+            self._update_course_count()
+            return
+        chosen = set(selected or [])
+        for index, name in enumerate(names):
+            var = tk.BooleanVar(value=(not chosen) or (name in chosen))
+            self._course_vars[name] = var
+            box = ctk.CTkCheckBox(self._course_box, text=self._fit(name, 15), variable=var,
+                                  font=theme.font(11), checkbox_width=16,
+                                  checkbox_height=16, command=self._update_course_count)
+            box.grid(row=index // 2, column=index % 2, sticky="w", padx=8, pady=3)
+        self._update_course_count()
+
+    def get_courses(self) -> list[str]:
+        return [name for name, var in self._course_vars.items() if var.get()]
+
+    def get_speed(self) -> str:
+        try:
+            value = str(self._speed_box.get()).strip()
+        except Exception:
+            return "1"
+        return value if value in SPEEDS else "1"
+
+    def set_speed(self, value) -> None:
+        value = str(value or "1").strip()
+        if value not in SPEEDS:
+            value = "1"
+        self._speed_value = value
+        if self._speed_box.get() != value:
+            self._speed_box.set(value)
+
+    def _select_all_courses(self) -> None:
+        for var in self._course_vars.values():
+            var.set(True)
+        self._update_course_count()
+
+    def _clear_courses(self) -> None:
+        for var in self._course_vars.values():
+            var.set(False)
+        self._update_course_count()
+
+    def _update_course_count(self) -> None:
+        total = len(self._course_vars)
+        if not total:
+            self._course_count.configure(text="未选课程")
+        else:
+            self._course_count.configure(text=f"已选 {len(self.get_courses())}/{total}")
+
     def set_pending(self, items) -> None:
         """items: [(课程名, 状态文字), ...]"""
         for child in self._pending_rows.winfo_children():
@@ -369,6 +496,15 @@ class HomePage(ctk.CTkFrame):
             fg_color=theme.shade(theme.accent(), 1.35) if running else theme.accent())
         self._stop_btn.configure(state="normal" if running else "disabled")
         self._live_dot.configure(text_color=theme.OK if running else theme.FAINT)
+        state = "disabled" if running else "normal"
+        self._speed_box.configure(state="readonly" if running else "readonly")
+        for child in self._course_box.winfo_children():
+            try:
+                child.configure(state=state)
+            except Exception:
+                pass
+        if not self._login_running:
+            self._login_btn.configure(state=state, text="登录")
         self._sync_state()
 
     def set_chips(self, timer_on: bool, timer_text: str) -> None:

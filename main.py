@@ -7,6 +7,7 @@
 import json
 import os
 import re
+import sys
 import time
 import traceback
 import pyautogui
@@ -274,6 +275,128 @@ def save_course_lst(driver,class_name,course_elements,phone_number):
                 print(color.red('保存课程列表失败'), flush=True)
     except:
         print(color.red('保存课程列表失败'), flush=True)
+
+def open_course_list(driver):
+    """从个人空间进「我的课程」列表页（复用选题逻辑里的导航链）。"""
+    try:
+        driver.find_element(By.CSS_SELECTOR, '[title="新泛雅"]').click()
+        time.sleep(1)
+    except Exception:
+        try:
+            element = driver.find_element(By.CSS_SELECTOR, '[title*="课程"]')
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
+            time.sleep(0.5)
+            element.click()
+            time.sleep(1)
+        except Exception:
+            pass
+    try:
+        time.sleep(2)
+        driver.switch_to.frame('frame_content')
+    except Exception:
+        pass
+    try:
+        element = driver.find_element(By.CLASS_NAME, 'course-tab')
+        for item in element.find_elements(By.TAG_NAME, 'div'):
+            if (item.text or '').strip() == '我学的课':
+                item.click()
+                time.sleep(1)
+                break
+    except Exception:
+        pass
+    return True
+
+
+def collect_course_names(driver, timeout=25):
+    """读取「我的课程」里的课程名，去重并保持平台顺序。"""
+    deadline = time.time() + timeout
+    names = []
+    while time.time() < deadline:
+        names = []
+        for by, value in ((By.CLASS_NAME, 'course-name'),
+                          (By.CLASS_NAME, 'courseName'),
+                          (By.CSS_SELECTOR, '[class="w_cour_txtH fl"]')):
+            try:
+                elements = driver.find_elements(by, value)
+            except Exception:
+                elements = []
+            for element in elements:
+                try:
+                    text = (element.get_attribute('title') or element.text or '').strip()
+                except Exception:
+                    continue
+                if text and text not in names:
+                    names.append(text)
+            if names:
+                break
+        if names:
+            break
+        time.sleep(1)
+    return names
+
+
+def write_course_names(phone_number, names):
+    path = r'task/tool/course_name.json'
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    data[phone_number] = list(names)
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def probe_courses(browser, driver_path, phone_number, password):
+    """登录一次，只把「我的课程」读回来存进 course_name.json，不刷课。"""
+    driver = open_browser_and_login(browser, driver_path, '1', phone_number, password)
+    try:
+        print(color.green('正在打开「我的课程」...'), flush=True)
+        open_course_list(driver)
+        names = collect_course_names(driver)
+        if not names:
+            print(color.red('没有读到课程列表：请确认这门账号在学习通里确实有课程'), flush=True)
+            return []
+        write_course_names(phone_number, names)
+        print(color.green(f'读取到 {len(names)} 门课程'), flush=True)
+        for index, name in enumerate(names, 1):
+            print(f'  {index}. {name}', flush=True)
+        return names
+    finally:
+        try:
+            driver.quit()
+        except Exception:
+            pass
+
+
+def run_probe_courses():
+    """GUI「登录」按钮调用的入口：读配置 → 登录 → 抓课程列表。"""
+    try:
+        with open(r'task/tool/account_info.json', 'r', encoding='utf-8') as fil:
+            account_info = json.load(fil)
+    except Exception:
+        print(color.red('读取配置失败，请先到「设置」里保存账号和密码'), flush=True)
+        return 1
+    phone_number = account_info.get('phone_number') or ''
+    password = account_info.get('password') or ''
+    if not phone_number or not password:
+        print(color.red('账号或密码为空，请先到「设置」里填写并保存'), flush=True)
+        return 1
+    try:
+        probe_courses(account_info.get('browser') or '不指定浏览器',
+                      account_info.get('driver_path', ''), phone_number, password)
+    except PageStructureError as exc:
+        print(color.red(f'登录失败：{exc}'), flush=True)
+        return 1
+    except Exception:
+        send_error("\n【运行出错】详细信息已写入 error.log（可在软件“日志”页查看）\n"
+                   + traceback.format_exc())
+        print(color.red('读取课程列表出错，详细信息见错误日志'), flush=True)
+        return 1
+    return 0
+
 
 def experience(driver):
     # 体验最新版本
@@ -962,4 +1085,6 @@ def run_main():
         print(color.red('❌ 出错了，具体原因请前往错误日志查看'),flush=True)
 
 if __name__ == '__main__':
+    if '--probe-courses' in sys.argv:
+        sys.exit(run_probe_courses())
     run_main()

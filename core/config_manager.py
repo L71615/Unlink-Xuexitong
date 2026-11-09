@@ -26,11 +26,27 @@ class ConfigManager:
         return self._account_info
 
     def save_account(self, account_info: dict) -> bool:
+        """增量保存：只覆盖传入的键，文件里其它配置原样保留。
+
+        以前是整文件覆盖，只要有人传了不完整的 dict（比如只带 user_notice），
+        账号、课程、倍速这些就一起被抹掉，表现就是「保存不下来」。
+        """
+        merged = {}
+        try:
+            with open(self.ACCOUNT_PATH, 'r', encoding='utf-8') as f:
+                old = json.load(f)
+            if isinstance(old, dict):
+                merged.update(old)
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            merged = {}
+        if isinstance(account_info, dict):
+            merged.update(account_info)
         try:
             with open(self.ACCOUNT_PATH, 'w', encoding='utf-8') as f:
-                json.dump(account_info, f, ensure_ascii=False, indent=2)
+                json.dump(merged, f, ensure_ascii=False, indent=2)
+            self._account_info = merged
             return True
-        except PermissionError:
+        except (PermissionError, OSError):
             return False
 
     def get_account(self) -> dict:
@@ -51,10 +67,34 @@ class ConfigManager:
                 data = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             data = {}
-        existing = data.get(phone_number, [])
-        data[phone_number] = list(set(existing + courses))
+        existing = data.get(phone_number, []) or []
+        merged = []
+        for name in list(existing) + list(courses or []):
+            name = (name or "").strip()
+            if name and name not in merged:
+                merged.append(name)
+        data[phone_number] = merged
         with open(self.COURSE_PATH, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+
+    def set_courses(self, phone_number: str, courses: list):
+        """整体替换某账号的课程列表（登录后刷新用，保持平台原有顺序）。"""
+        try:
+            with open(self.COURSE_PATH, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+        names = []
+        for name in courses or []:
+            name = (name or "").strip()
+            if name and name not in names:
+                names.append(name)
+        data[phone_number] = names
+        with open(self.COURSE_PATH, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        return names
 
     # ========== 便捷方法 ==========
     def get_version(self) -> str:

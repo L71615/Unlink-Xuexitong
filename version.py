@@ -7,7 +7,7 @@ exe 文件属性里的版本号全部跟着走，不用再翻别的文件。
 
 APP_NAME = "课业助手"
 EXE_NAME = "课业助手"
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 
 
 def version_tuple() -> tuple[int, int, int, int]:

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""设置页：配置、账号、功能、高级选项、界面。"""
+"""设置页：账号、浏览器、功能、高级选项。课程与倍速在主页选择。"""
 from __future__ import annotations
 
 import tkinter as tk
@@ -16,13 +16,10 @@ BROWSERS = ("不指定浏览器", "edge", "chrome")
 QUESTION_CHOICES = ("DeepSeek AI", "随机答题", "不刷题")
 VIDEO_CHOICES = ("DeepSeek AI", "随机答题")
 DISCUSSION_CHOICES = ("DeepSeek AI", "跳过讨论")
-SPEEDS = ("1", "2", "3", "4", "5", "6", "8", "10", "16")
 AFTER_FINISH = ("仅自动保存", "强制自动提交", "搜到60%的题自动提交",
                 "搜到70%的题自动提交", "搜到80%的题自动提交",
                 "搜到90%的题自动提交", "搜到100%的题自动提交")
 HOMEWORK_CHOICES = ("手动选择", "自动选择")
-FONT_FAMILIES = ("Microsoft YaHei", "微软雅黑", "宋体", "楷体", "黑体", "Helvetica")
-FONT_SIZES = tuple(str(i) for i in range(9, 17))
 
 
 def _entry(parent, **kwargs):
@@ -73,7 +70,6 @@ class SettingsPage(ctk.CTkFrame):
         self._on_saved = on_saved
         self._open_timer = open_timer
         self._timer_text = timer_text
-        self._course_vars: list[tk.StringVar] = []
         self._build()
 
     # ------------------------------------------------------------------
@@ -81,7 +77,7 @@ class SettingsPage(ctk.CTkFrame):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
-        header = PageHeader(self, "设置", "配置保存在 task/tool/account_info.json")
+        header = PageHeader(self, "设置", "账号与运行偏好；课程、倍速在主页选择")
         header.grid(row=0, column=0, sticky="ew",
                     padx=(theme.PAGE_PAD, theme.PAGE_PAD + 6), pady=(22, 0))
         primary_button(header.right, "保存设置", self.save, icon="save").pack(side="right")
@@ -103,7 +99,6 @@ class SettingsPage(ctk.CTkFrame):
         self._build_config(left)
         self._build_function(left)
         self._build_advanced(right)
-        self._build_interface(right)
         self.load()
 
     def _card(self, parent, title: str) -> Card:
@@ -139,17 +134,8 @@ class SettingsPage(ctk.CTkFrame):
         self._row(card, 3, "已存账号", self.account_pick,
                   text_button(card, "删除", self._delete_account, height=28))
 
-        head = ctk.CTkFrame(card, fg_color="transparent")
-        head.grid(row=4, column=0, columnspan=3, sticky="ew", padx=18, pady=(6, 0))
-        ctk.CTkLabel(head, text="课程", font=theme.font(11), text_color=theme.MUTED,
-                     anchor="w").pack(side="left")
-        text_button(head, "+ 添加", self._add_course, height=26).pack(side="right")
-
-        self.course_box = ctk.CTkFrame(card, fg_color="transparent")
-        self.course_box.grid(row=5, column=0, columnspan=3, sticky="ew", padx=18)
-
-        Hint(card, "最多 3 门，名称要与学习通里完全一致；上方下拉可切换已存账号（选完点「保存」生效）").grid(
-            row=6, column=0, columnspan=3, sticky="w", padx=18, pady=(2, 14))
+        Hint(card, "保存账号后到主页点「登录」读取课程，再勾选要刷的课；倍速也在主页选").grid(
+            row=4, column=0, columnspan=3, sticky="w", padx=18, pady=(2, 14))
 
     # ------------------------------------------------------------------
     # 多账号
@@ -173,12 +159,6 @@ class SettingsPage(ctk.CTkFrame):
         if password:
             self.password.delete(0, tk.END)
             self.password.insert(0, password)
-        courses = self.config.load_courses(phone) if hasattr(self.config, "load_courses") else []
-        if isinstance(courses, dict):
-            courses = courses.get(phone) or []
-        if courses:
-            self._course_vars = [tk.StringVar(value=c) for c in courses[:3]]
-            self._render_courses()
 
     def _delete_account(self) -> None:
         phone = (self.account_pick.get() or "").strip()
@@ -239,19 +219,18 @@ class SettingsPage(ctk.CTkFrame):
         self.discussion = _combo(self.brush, DISCUSSION_CHOICES)
         self._row(self.brush, 3, "讨论", self.discussion)
 
-        self.speed = _combo(self.brush, SPEEDS, command=self._on_speed_change)
-        self._row(self.brush, 4, "倍速", self.speed)
-
         self.api = _entry(self.brush, show="*")
-        self._row(self.brush, 5, "API Key", self.api,
+        self._row(self.brush, 4, "API Key", self.api,
                   text_button(self.brush, "显示", self._toggle_api, height=28))
 
         self.switch_face = _switch(self.brush)
-        self._row(self.brush, 6, "自动处理人脸", self.switch_face)
-        self.switch_skip = _switch(self.brush, command=self._on_skip_video)
-        self._row(self.brush, 7, "秒过视频", self.switch_skip)
+        self._row(self.brush, 5, "自动处理人脸", self.switch_face)
+        self.switch_skip = _switch(self.brush)
+        self._row(self.brush, 6, "秒过视频", self.switch_skip)
         self.switch_lock = _switch(self.brush)
-        self._row(self.brush, 8, "防锁屏", self.switch_lock)
+        self._row(self.brush, 7, "防锁屏", self.switch_lock)
+        self.switch_top = _switch(self.brush)
+        self._row(self.brush, 8, "窗口置顶", self.switch_top)
 
         timer_box = ctk.CTkFrame(self.brush, fg_color="transparent")
         self.timer_switch = _switch(timer_box, command=self._on_timer_switch)
@@ -275,49 +254,6 @@ class SettingsPage(ctk.CTkFrame):
         Hint(self.homework, "作业会逐个打开，作答后点「暂时保存」").grid(
             row=2, column=0, columnspan=3, sticky="w", padx=18, pady=(0, 14))
         self.homework.grid_remove()
-
-    def _build_interface(self, parent) -> None:
-        card = self._card(parent, "界面")
-        self.font_family = _combo(card, FONT_FAMILIES, readonly=False)
-        self._row(card, 1, "字体", self.font_family)
-        self.font_size = _combo(card, FONT_SIZES)
-        self._row(card, 2, "字号", self.font_size)
-        self.accent = _combo(card, tuple(theme.ACCENTS.keys()))
-        self._row(card, 3, "主题色", self.accent)
-        self.switch_top = _switch(card)
-        self._row(card, 4, "窗口置顶", self.switch_top)
-        Hint(card, "字体、字号、主题色下次启动生效").grid(
-            row=5, column=0, columnspan=3, sticky="w", padx=18, pady=(0, 14))
-
-    # ------------------------------------------------------------------
-    # 课程行
-    # ------------------------------------------------------------------
-    def _add_course(self) -> None:
-        if len(self._course_vars) >= 3:
-            messagebox.showwarning("提示", "最多添加 3 门课程")
-            return
-        self._course_vars.append(tk.StringVar(value=""))
-        self._render_courses()
-
-    def _remove_course(self, index: int) -> None:
-        if len(self._course_vars) <= 1:
-            return
-        self._course_vars.pop(index)
-        self._render_courses()
-
-    def _render_courses(self) -> None:
-        for widget in self.course_box.winfo_children():
-            widget.destroy()
-        for index, var in enumerate(self._course_vars):
-            row = ctk.CTkFrame(self.course_box, fg_color="transparent")
-            row.pack(fill="x", pady=2)
-            row.grid_columnconfigure(0, weight=1)
-            entry = _entry(row, textvariable=var)
-            entry.grid(row=0, column=0, sticky="ew")
-            if len(self._course_vars) > 1:
-                text_button(row, "删除", lambda i=index: self._remove_course(i),
-                            color=theme.DANGER, height=28).grid(row=0, column=1,
-                                                                padx=(6, 0))
 
     # ------------------------------------------------------------------
     # 交互
@@ -356,17 +292,6 @@ class SettingsPage(ctk.CTkFrame):
         else:
             self.after_finish.grid_remove()
 
-    def _on_speed_change(self, value) -> None:
-        if value.isdigit() and int(value) > 2:
-            messagebox.showinfo("提示", "倍速过高可能让已完成的任务点被清空，谨慎使用")
-
-    def _on_skip_video(self) -> None:
-        if self.switch_skip.get():
-            self.speed.set("1")
-            self.speed.configure(state="disabled")
-        else:
-            self.speed.configure(state="readonly")
-
     def _on_timer_switch(self) -> None:
         if self.timer_switch.get():
             self._open_timer()
@@ -391,10 +316,6 @@ class SettingsPage(ctk.CTkFrame):
         self.password.delete(0, tk.END)
         self.password.insert(0, account.get("password", ""))
 
-        courses = [c for c in (account.get("cour") or [""])][:3] or [""]
-        self._course_vars = [tk.StringVar(value=c) for c in courses]
-        self._render_courses()
-
         # 首次升级：把 account_info.json 里的账号登记进账号簿
         try:
             accounts.migrate_from_account_info(account)
@@ -416,14 +337,11 @@ class SettingsPage(ctk.CTkFrame):
         self.after_finish.set(account.get("after_finish_question") or "仅自动保存")
         self.video_choice.set(account.get("video_title_choice") or "随机答题")
         self.discussion.set(account.get("discussion_choice") or "跳过讨论")
-        self.speed.set(account.get("speed") or "1")
+        self.api.delete(0, tk.END)
         self.api.insert(0, account.get("API", ""))
         self.homework_choice.set(account.get("homework") or "手动选择")
+        self.homework_api.delete(0, tk.END)
         self.homework_api.insert(0, account.get("API", ""))
-
-        self.font_family.set(account.get("font_type") or "Microsoft YaHei")
-        self.font_size.set(str(account.get("font_size") or 13))
-        self.accent.set(account.get("accent") or theme.DEFAULT_ACCENT)
 
         pairs = ((self.switch_face, "pass_face"),
                  (self.switch_skip, "pass_vido"), (self.switch_lock, "lock_screen"),
@@ -451,21 +369,15 @@ class SettingsPage(ctk.CTkFrame):
             else self.driver.get().strip()
         account["phone_number"] = self.phone.get().strip()
         account["password"] = self.password.get().strip()
-        courses = [var.get().strip() for var in self._course_vars if var.get().strip()]
-        account["cour"] = courses
         account["choice"] = self.choice.get()
         account["after_finish_question"] = self.after_finish.get()
         account["video_title_choice"] = self.video_choice.get()
         account["discussion_choice"] = self.discussion.get()
         account["API"] = (self.api.get() if self.mode.get() == 1
                           else self.homework_api.get()).strip()
-        account["speed"] = self.speed.get()
         account["homework"] = self.homework_choice.get()
         account["task_type"] = "章节" if self.mode.get() == 1 else "作业"
         account["radio_var"] = self.mode.get()
-        account["font_type"] = self.font_family.get()
-        account["font_size"] = self.font_size.get()
-        account["accent"] = self.accent.get()
         account["pass_face"] = int(self.switch_face.get())
         account["pass_vido"] = int(self.switch_skip.get())
         account["lock_screen"] = int(self.switch_lock.get())
@@ -476,14 +388,13 @@ class SettingsPage(ctk.CTkFrame):
         if not self.config.save_account(account):
             messagebox.showerror("保存失败", "写入配置失败，请检查文件权限")
             return
-        self.config.save_courses(account["phone_number"], courses)
         try:
             accounts.upsert(account["phone_number"], account["password"])
-            self._refresh_account_combo(account["phone_number"])
         except Exception:
             pass
+        self._refresh_account_combo(account["phone_number"])
         self._on_saved(account)
-        messagebox.showinfo("已保存", "设置已保存")
+        messagebox.showinfo("已保存", "设置已保存。到主页点「登录」读取课程列表")
 
     def _validate(self) -> bool:
         if not self.phone.get().strip():
@@ -492,9 +403,6 @@ class SettingsPage(ctk.CTkFrame):
         if not self.password.get().strip():
             messagebox.showerror("缺少信息", "请填写密码")
             return False
-        if not any(var.get().strip() for var in self._course_vars):
-            messagebox.showerror("缺少信息", "请填写至少一门课程")
-            return False
         if not self.browser.get():
             messagebox.showerror("缺少信息", "请选择浏览器")
             return False
@@ -502,9 +410,6 @@ class SettingsPage(ctk.CTkFrame):
             messagebox.showerror("缺少信息", "请填写驱动地址")
             return False
         if self.mode.get() == 1:
-            if not self.speed.get():
-                messagebox.showerror("缺少信息", "请选择倍速")
-                return False
             if "DeepSeek AI" in (self.choice.get(), self.video_choice.get(),
                                  self.discussion.get()) and not self.api.get().strip():
                 messagebox.showerror("缺少信息", "使用 DeepSeek 需要填写 API Key")

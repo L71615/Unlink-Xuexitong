@@ -66,7 +66,7 @@ class Onboarding:
         for key, title, desc in (
             ("browser", "浏览器", "需要安装 Edge 或 Chrome"),
             ("driver", "浏览器驱动", "Edge 可以直接用项目自带的驱动"),
-            ("account", "账号配置", "需要填写学习通账号和课程"),
+            ("account", "账号配置", "需要填写学习通账号，课程在主页登录后勾选"),
             ("network", "网络", "需要能访问学习通"),
         ):
             self._rows[key] = self._make_row(self._rows_box, key, title, desc)
