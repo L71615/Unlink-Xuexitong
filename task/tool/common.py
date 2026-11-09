@@ -79,7 +79,6 @@ def turn_page(driver,page_name):
             return True
     return False
 def save_record(driver, course_name, time, iframe, typ):
-    save_process(course_name)
     if typ!='测验':
         try:
             driver.switch_to.default_content()
@@ -96,17 +95,33 @@ def save_record(driver, course_name, time, iframe, typ):
         except:
             print(color.red('保存进度失败'), flush=True)
 def save_process(course_name,done=0,total=0):
+    """记录课程进度。
+
+    只接受页面真实读到的 `已完成任务点: x/y`；读不到就不写，
+    不再用「上一次的数字 +1」去猜（那会让界面显示虚假进度）。
+    """
+    try:
+        done = int(done)
+        total = int(total)
+    except (TypeError, ValueError):
+        total = 0
+    if total <= 0 or done < 0 or done > total:
+        print(color.yellow('未读到任务点进度，本次不更新进度'), flush=True)
+        return False
     try:
         with open('task/tool/course_process.json', 'r', encoding='utf-8') as f:
             data = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         data = {}
-    num_list = data.get(course_name, '')
-    if num_list != '' and done == 0:
-        data[course_name] = [num_list[0] + 1, num_list[1]]
-    elif total != 0:
-        data[course_name] = [done, total]
-        print(color.green(f'已保存进度：{done}/{total}'), flush=True)
-    with open('task/tool/course_process.json', 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
+    if not isinstance(data, dict):
+        data = {}
+    data[course_name] = [done, total]
+    print(color.green(f'已保存进度：{done}/{total}'), flush=True)
+    try:
+        with open('task/tool/course_process.json', 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+    except OSError as exc:
+        print(color.red(f'进度写入失败：{exc}'), flush=True)
+        return False
+    return True
 

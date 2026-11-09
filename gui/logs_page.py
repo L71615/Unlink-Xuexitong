@@ -10,6 +10,7 @@ from tkinter import messagebox
 import customtkinter as ctk
 
 from core import resume as resume_store
+from core import progress
 from gui import theme
 from gui.widgets import (Card, Hint, PageHeader, ProgressBar, SectionTitle,
                          ghost_button, text_button)
@@ -148,6 +149,11 @@ class RecordPage(ctk.CTkFrame):
                 "重置断点", f"重置《{course}》的断点？\n下次会重新从这门课的开头刷。"):
             return
         resume_store.reset(phone, course)
+        try:
+            progress.set_account(phone)
+            progress.clear(course)
+        except Exception:
+            pass
         messagebox.showinfo("已重置", "断点已清除")
         self.refresh()
 

@@ -24,7 +24,20 @@ class FaceRequired(Exception):
     """需要本人扫码完成人脸采集：调用方应停止当前课程，不要刷新重试。"""
 
 
-MANUAL_SCAN_TIMEOUT = 120  # 等待本人扫码的秒数
+MANUAL_SCAN_TIMEOUT = 60  # 等待本人扫码的秒数（可在设置里用 face_wait 覆盖）
+
+
+def manual_wait_setting(default=MANUAL_SCAN_TIMEOUT) -> int:
+    """读取设置里的 face_wait（秒）；调小可以更快跳到下一门课。"""
+    try:
+        with open('task/tool/account_info.json', 'r', encoding='utf-8') as handle:
+            value = json.load(handle).get('face_wait', default)
+        value = int(value)
+        if value <= 0:
+            return default
+        return min(value, 600)
+    except Exception:
+        return default
 
 # 软校验：先隐藏遮罩，观察服务端会不会把弹窗推回来、视频还走不走
 SOFT_DISMISS_HOLD = 12
@@ -184,8 +197,9 @@ def _beep(times=2):
             pass
 
 
-def wait_for_manual_scan(driver, timeout=MANUAL_SCAN_TIMEOUT, poll=2.0):
+def wait_for_manual_scan(driver, timeout=None, poll=2.0):
     """等待本人用学习通 APP 扫码完成采集；弹窗消失返回 True"""
+    timeout = manual_wait_setting() if timeout is None else timeout
     deadline = time.time() + timeout
     last_report = time.time()
     while time.time() < deadline:
@@ -200,36 +214,11 @@ def wait_for_manual_scan(driver, timeout=MANUAL_SCAN_TIMEOUT, poll=2.0):
     return _visible_face_popup(driver)[0] is None
 
 
-def check_face(driver,face_url,face_class='popDiv wid640 faceCollectQrPop popClass',course_name=''):
-    i = 0
-    while i <= 200:
-        try:
-            driver.find_element(By.CSS_SELECTOR, f"[class='{face_class}']")
-            if i == 0:
-                print(color.red('已检测人脸认证弹窗'),flush=True)
-                if auto_login_with_cookies(driver,file_name='face_cookies',url=face_url,face_class=face_class):
-                    return
-            if i == 0 :
-                print(color.red('请按照要求手机扫码进行人脸认证,如有误判将在20秒后默认您已经完成认证'), flush=True)
-            time.sleep(1)
-            i += 1
-        except:
-            if i != 0:
-                print(color.red('人脸认证已完成'), flush=True)
-                get_cookie(driver,file_name='face_cookies',course_name=course_name)
-            break
-
 def get_cookie(driver,file_name='cookies',course_name='',account=''):
+    """保存登录 cookie；按账号分文件，换号时不会把上一个号的登录态带进来。"""
     try:
-        # 按账号分文件保存，避免换号时把上一个号的登录态带进来
         name = f'{file_name}_{account}' if account else file_name
         pickle.dump(driver.get_cookies(), open(rf'task/tool/{name}.pkl', 'wb'))
-        if file_name=='face_cookies':
-            with open(rf'task/tool/face_url.json', 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                data[course_name] = driver.current_url
-                # print(data['face_url'], flush=True)
-                json.dump(data, open(rf'task/tool/face_url.json', 'w', encoding='utf-8'))
         return True
     except PermissionError:
         print(color.red('请在关闭该窗口后，再右键点击刷课程序用管理员权限打开'))
@@ -240,68 +229,6 @@ def get_cookie(driver,file_name='cookies',course_name='',account=''):
         send_error(
             "\n【运行出错】详细信息已写入 error.log（可在软件“日志”页查看）\n" + error_msg)
         return True
-
-def auto_login_with_cookies(driver,file_name='cookies', url='https://i.chaoxing.com',face_class='popDiv wid640 faceCollectQrPop popClass'):
-    if '登录' not in driver.title and file_name=='cookies':
-        return True
-    try:
-        # 清除可能存在的旧cookie
-        # driver.delete_all_cookies()
-        try:
-            cookies = pickle.load(open(rf'task/tool/{file_name}.pkl', 'rb'))
-        except:
-            return False
-        print(color.green('正在尝试自动跳过。。。'),flush=True)
-        # 逐个添加cookie
-        for cookie in cookies:
-            try:
-                # 移除可能引起问题的属性
-                cookie_to_add = cookie.copy()
-                # Selenium的add_cookie方法不支持'sameSite'参数，需要移除
-                if 'sameSite' in cookie_to_add:
-                    del cookie_to_add['sameSite']
-                # 确保domain格式正确
-                if cookie_to_add['domain'].startswith('.'):
-                    # 对于以点开头的domain，确保浏览器在当前域的正确上下文中
-                    pass
-                driver.add_cookie(cookie_to_add)
-                # print(color.green(f"成功添加cookie: {cookie['name']}"),flush=True)
-            except Exception as e:
-                pass
-                # print(color.red(f"添加cookie {cookie['name']} 时出错: {e}"),flush=True)
-
-        # 刷新页面使cookie生效
-        driver.refresh()
-
-        # 等待页面加载
-        time.sleep(3)
-        #  访问需要登录的页面测试
-        test_url = url  # 个人中心页面
-        if test_url:
-            driver.get(test_url)
-        # 验证登录是否成功
-        if file_name=='face_cookies':
-            try:
-                driver.find_element(By.CSS_SELECTOR, f"[class='{face_class}']")
-                print(color.red('跳过人脸认证失败'), flush=True)
-                return False
-            except:
-                print(color.green('成功跳过人脸认证'),flush=True)
-                return True
-
-        if driver.title!='用户登录' :
-            print(color.green("自动登录验证成功！"),flush=True)
-            return True
-        else:
-            print(color.red("登录可能已过期"),flush=True)
-            return False
-
-    except Exception as e:
-        print(color.red(f"自动登录过程中出错"),flush=True)
-        error_msg = traceback.format_exc()
-        send_error(
-            "\n【运行出错】详细信息已写入 error.log（可在软件“日志”页查看）\n" + error_msg)
-        return False
 
 class ChaoxingFaceBypass:
     """超星人脸识别自动处理"""
@@ -329,12 +256,20 @@ class ChaoxingFaceBypass:
         self.http = requests.Session()
         self.last_qr_url = None
         self.is_processing = False
+        self.last_error = ""     # 最近一次失败原因，供上层日志展示
 
     # ---------------------------------------------------------------- 日志
     def log(self, msg, level="INFO"):
-        # if self.verbose or level in ("ERROR", "WARN"):
-        #     print(f"[超星人脸助手][{level}] {msg}")
-        pass
+        """把处理链路打出来：失败时用户能直接看到原因，而不是只看到“失败”。"""
+        if level == "ERROR":
+            print(color.red(f'[人脸] {msg}'), flush=True)
+            self.last_error = str(msg)
+        elif level == "WARN":
+            print(color.yellow(f'[人脸] {msg}'), flush=True)
+            if not self.last_error:
+                self.last_error = str(msg)
+        elif self.verbose:
+            print(f'[人脸] {msg}', flush=True)
     # ------------------------------------------------------- Cookie 同步
     def _cookie_header(self) -> str:
         """把浏览器 Cookie 拼成 Cookie 请求头"""
@@ -751,7 +686,7 @@ class ChaoxingFaceBypass:
 
 def _manual_scan_or_raise(driver, manual_wait=None) -> bool:
     """等本人用手机扫码；超时抛 FaceRequired，调用方停止本课程。"""
-    timeout = MANUAL_SCAN_TIMEOUT if manual_wait is None else manual_wait
+    timeout = manual_wait_setting() if manual_wait is None else manual_wait
     print(color.yellow(
         f'请用手机学习通 APP 扫描浏览器里的二维码完成人脸采集，'
         f'最多等待 {int(timeout)} 秒...'), flush=True)
@@ -775,7 +710,7 @@ def delete_face_popup(driver, pass_face, class_name='', manual_wait=None, auto_v
     - 自动处理已关闭（pass_face=0）：只提示本人扫码，不自动提交；
     - 自动流程成功且弹窗真的关闭：直接继续；
     - 自动流程成功但弹窗还在（章节页采集）：提示本人扫码，最多等 120 秒；
-    - 自动流程失败：同样只等待本人扫码，不再走 check_face/删弹窗/递归；
+    - 自动流程失败：同样只等待本人扫码，不再删弹窗/递归；
     - 等人工之前先做一次软校验：隐藏遮罩，看服务端是否推回、视频是否继续；
     - 等待超时：抛 FaceRequired，调用方停止本课程，避免刷新出新二维码死循环。
     """
@@ -805,9 +740,16 @@ def delete_face_popup(driver, pass_face, class_name='', manual_wait=None, auto_v
         return True
 
     if ok:
-        print(color.yellow('二维码状态已更新，但采集弹窗仍未关闭，不能算成功'), flush=True)
+        # 采集弹窗常见要等视频心跳把状态回写一次才会关，再补交一轮
+        print(color.yellow('二维码状态已更新，但采集弹窗仍未关闭，补交一次'), flush=True)
+        time.sleep(2)
+        if bypass.run() and _wait_popup_gone(driver, auto_verify):
+            print(color.green('人脸校验已通过，弹窗已关闭'), flush=True)
+            return True
+        print(color.yellow('补交后弹窗仍未关闭，不能算成功'), flush=True)
     else:
-        print(color.yellow('自动处理没有通过，需要本人完成采集'), flush=True)
+        reason = bypass.last_error or '未返回具体原因'
+        print(color.yellow(f'自动处理没有通过：{reason}'), flush=True)
 
     # 软校验：如果只是前端遮罩，藏掉后服务端不推回、视频继续，就按跳过处理
     if soft_dismiss_face_popup(driver):

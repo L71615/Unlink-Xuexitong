@@ -10,6 +10,7 @@ import customtkinter as ctk
 from gui import theme
 from gui.widgets import (Card, Hint, PageHeader, SectionTitle, text_button,
                          primary_button)
+from core import accounts
 
 BROWSERS = ("不指定浏览器", "edge", "chrome")
 QUESTION_CHOICES = ("DeepSeek AI", "随机答题", "不刷题")
@@ -133,17 +134,62 @@ class SettingsPage(ctk.CTkFrame):
         self._row(card, 2, "密码", self.password,
                   text_button(card, "显示", self._toggle_password, height=28))
 
+        self.account_pick = _combo(card, [], command=self._on_pick_account)
+        self.account_pick.set("")
+        self._row(card, 3, "已存账号", self.account_pick,
+                  text_button(card, "删除", self._delete_account, height=28))
+
         head = ctk.CTkFrame(card, fg_color="transparent")
-        head.grid(row=3, column=0, columnspan=3, sticky="ew", padx=18, pady=(6, 0))
+        head.grid(row=4, column=0, columnspan=3, sticky="ew", padx=18, pady=(6, 0))
         ctk.CTkLabel(head, text="课程", font=theme.font(11), text_color=theme.MUTED,
                      anchor="w").pack(side="left")
         text_button(head, "+ 添加", self._add_course, height=26).pack(side="right")
 
         self.course_box = ctk.CTkFrame(card, fg_color="transparent")
-        self.course_box.grid(row=4, column=0, columnspan=3, sticky="ew", padx=18)
+        self.course_box.grid(row=5, column=0, columnspan=3, sticky="ew", padx=18)
 
-        Hint(card, "最多 3 门，名称要与学习通里完全一致").grid(
-            row=5, column=0, columnspan=3, sticky="w", padx=18, pady=(2, 14))
+        Hint(card, "最多 3 门，名称要与学习通里完全一致；上方下拉可切换已存账号（选完点「保存」生效）").grid(
+            row=6, column=0, columnspan=3, sticky="w", padx=18, pady=(2, 14))
+
+    # ------------------------------------------------------------------
+    # 多账号
+    # ------------------------------------------------------------------
+    def _refresh_account_combo(self, selected: str = "") -> None:
+        """把账号簿里的手机号填进下拉框，并选中当前账号。"""
+        saved = accounts.phones()
+        self.account_pick.configure(values=saved or [""])
+        pick = selected or accounts.current() or (saved[0] if saved else "")
+        self.account_pick.set(pick if pick in saved else "")
+
+    def _on_pick_account(self, choice) -> None:
+        """选中已存账号：自动填手机号和密码（不写盘，保存时才生效）。"""
+        phone = (choice or "").strip()
+        item = accounts.get(phone)
+        if not item:
+            return
+        self.phone.delete(0, tk.END)
+        self.phone.insert(0, phone)
+        password = accounts.password_of(phone)
+        if password:
+            self.password.delete(0, tk.END)
+            self.password.insert(0, password)
+        courses = self.config.load_courses(phone) if hasattr(self.config, "load_courses") else []
+        if isinstance(courses, dict):
+            courses = courses.get(phone) or []
+        if courses:
+            self._course_vars = [tk.StringVar(value=c) for c in courses[:3]]
+            self._render_courses()
+
+    def _delete_account(self) -> None:
+        phone = (self.account_pick.get() or "").strip()
+        if not phone:
+            messagebox.showinfo("提示", "先在上方选择要删除的账号")
+            return
+        if not messagebox.askokcancel("删除账号", f"从账号簿里删除 {phone}？\n（不会删除该账号的刷课进度）"):
+            return
+        accounts.remove(phone)
+        self._refresh_account_combo()
+        self.account_pick.set("")
 
     def _build_config(self, parent) -> None:
         card = self._card(parent, "浏览器")
@@ -349,6 +395,13 @@ class SettingsPage(ctk.CTkFrame):
         self._course_vars = [tk.StringVar(value=c) for c in courses]
         self._render_courses()
 
+        # 首次升级：把 account_info.json 里的账号登记进账号簿
+        try:
+            accounts.migrate_from_account_info(account)
+        except Exception:
+            pass
+        self._refresh_account_combo(account.get("phone_number", ""))
+
         self.browser.set(account.get("browser") or "不指定浏览器")
         self.driver.delete(0, tk.END)
         driver = account.get("driver_path", "")
@@ -424,6 +477,11 @@ class SettingsPage(ctk.CTkFrame):
             messagebox.showerror("保存失败", "写入配置失败，请检查文件权限")
             return
         self.config.save_courses(account["phone_number"], courses)
+        try:
+            accounts.upsert(account["phone_number"], account["password"])
+            self._refresh_account_combo(account["phone_number"])
+        except Exception:
+            pass
         self._on_saved(account)
         messagebox.showinfo("已保存", "设置已保存")
 

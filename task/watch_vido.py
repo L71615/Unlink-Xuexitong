@@ -18,6 +18,7 @@ import itertools
 
 from task.tool.common import save_record
 from core.sleep_guard import keep_display_awake
+from core import progress
 from task.tool.face import delete_face_popup
 from task.tool.speed_control import apply_speed
 
@@ -377,7 +378,8 @@ def handle_video_error_alert(driver):
     except NoAlertPresentException:
         return
 
-def check_vido_finish(driver,i,time_start,total_time,vido_iframe,lock_screen,API,video_title_choice,speed,pass_face):
+def check_vido_finish(driver,i,time_start,total_time,vido_iframe,lock_screen,API,video_title_choice,speed,pass_face,
+                      course_name='', point_url=''):
     last_time = 0
     h = 0
     quiz_stall = 0  # 题目弹窗连续卡住的次数
@@ -424,6 +426,12 @@ def check_vido_finish(driver,i,time_start,total_time,vido_iframe,lock_screen,API
             current_time = element.text
             check_vido_play(driver, last_time, current_time,speed,pass_face,vido_iframe)
             last_time = current_time
+            # 记下播放位置，重开软件后能跳回这里
+            if course_name:
+                try:
+                    progress.save_point(course_name, current_time, point_url)
+                except Exception:
+                    pass
             if current_time == total_time:
                 if h == 0:
                     h += 1
@@ -484,6 +492,14 @@ def study_page(driver,course_name,lock_screen,API,video_title_choice,pass_vido,s
             driver.switch_to.frame('iframe')
             driver.switch_to.frame(vido_iframe)
 
+            # 任务点级断点：同一个视频接着上次看的位置播
+            point_url = ''
+            try:
+                point_url = progress.here(driver)
+                progress.restore(driver, course_name, point_url)
+            except Exception:
+                point_url = ''
+
             # 每个视频都按实际 playbackRate 重新校准，平台限速时不会白按
             try:
                 apply_speed(driver, speed)
@@ -517,7 +533,8 @@ def study_page(driver,course_name,lock_screen,API,video_title_choice,pass_vido,s
             driver.switch_to.frame('iframe')
             b = 0
             pause_start_time = 0  # 添加变量记录暂停开始时间
-            check_vido_finish(driver,i,time_start,total_time,vido_iframe,lock_screen,API,video_title_choice,speed,pass_face)
+            check_vido_finish(driver,i,time_start,total_time,vido_iframe,lock_screen,API,video_title_choice,speed,pass_face,
+                              course_name, point_url)
             save_record(driver, course_name, time, vido_iframe, '视频')
         driver.switch_to.default_content()
         # check_face(driver,driver.current_url,'popDiv1 wid640  faceCollectQrPopVideo  popClass faceRecognition_0')

@@ -31,6 +31,7 @@ from task.do_work import do_work
 from task.reading import reading
 from core.resume import Resume
 from core import browser as browser_module
+from core import progress
 error_num=0#错误次数
 RESUME=None#断点续刷记录器，在 main() 里初始化
 
@@ -410,6 +411,10 @@ def find_mission(driver,task_type,speed,course_name):
         dump_debug(driver, 'no_nav')
         raise PageStructureError(f'当前页面没有“{task_type}”导航')
     try:
+        progress.record_chapter(course_name, driver.current_url)
+    except Exception:
+        pass
+    try:
         driver.switch_to.frame(driver.find_element(By.TAG_NAME, 'iframe'))
     except NoSuchElementException:
         table = driver.find_element(By.CSS_SELECTOR, "[class='tabs font15 color333 fl']")
@@ -437,8 +442,17 @@ def find_mission(driver,task_type,speed,course_name):
                 driver.switch_to.default_content()
                 continue
         else:
-            print(color.red('所有任务点均已完成'),flush=True)
-            return False
+            driver.switch_to.default_content()
+            progress = read_course_progress(driver)
+            if progress and progress[0] >= progress[1]:
+                print(color.magenta(f'任务点已全部完成（{progress[0]}/{progress[1]}）'), flush=True)
+                save_process(course_name, progress[0], progress[1])
+                return False
+            dump_debug(driver, 'no_pending_point')
+            if progress:
+                raise PageStructureError(
+                    f'目录里没有待完成任务点，但进度只到 {progress[0]}/{progress[1]}')
+            raise PageStructureError('既找不到待完成任务点，也读不到任务点进度')
     refresh_process(driver,course_name)
     # 打印提示信息，表示已检测到未完成点
     print(color.magenta('已检测到未完成点'),flush=True)
@@ -449,6 +463,56 @@ def find_mission(driver,task_type,speed,course_name):
     # 点击待完成任务点的元素
     driver.execute_script("arguments[0].click();", element)
     return True
+
+def read_course_progress(driver):
+    """读课程页上真实的「已完成任务点 x/y」。
+
+    课程目录可能藏在多层 iframe 里，这里逐层扫一遍；读不到返回 None，
+    由调用方决定是按未完成处理还是继续找，绝不凭空判定“已完成”。
+    """
+    pattern = re.compile(r'已完成任务点[:：]\s*(\d+)\s*/\s*(\d+)')
+
+    def scan_current():
+        try:
+            text = driver.find_element(By.CLASS_NAME, 'xs_head_name').text.strip()
+        except Exception:
+            return None
+        found = pattern.search(text)
+        if not found:
+            return None
+        return int(found.group(1)), int(found.group(2))
+
+    def walk(depth=0):
+        hit = scan_current()
+        if hit:
+            return hit
+        if depth >= 2:
+            return None
+        frames = []
+        try:
+            frames = driver.find_elements(By.TAG_NAME, 'iframe')
+        except Exception:
+            return None
+        for frame in frames:
+            try:
+                driver.switch_to.frame(frame)
+            except Exception:
+                continue
+            hit = walk(depth + 1)
+            driver.switch_to.parent_frame()
+            if hit:
+                return hit
+        return None
+
+    try:
+        hit = walk()
+    except Exception:
+        hit = None
+    try:
+        driver.switch_to.default_content()
+    except Exception:
+        pass
+    return hit
 
 def refresh_process(driver,course_name):
     try:
@@ -667,6 +731,7 @@ def main(browser, driver_path, phone_number, password, choice, course_lst,API,af
          lock_screen,speed, task_type,homework,pass_face,video_title_choice,discussion_choice,pass_vido):
     global RESUME, error_num
     RESUME = Resume(phone_number)
+    progress.set_account(phone_number)
     pending = RESUME.skip_done(course_lst)
     if not pending:
         print(color.yellow('所有课程都已标记完成，可在「刷课日志」里点「重置断点」后再刷'), flush=True)
@@ -695,6 +760,20 @@ def main(browser, driver_path, phone_number, password, choice, course_lst,API,af
             driver.close()
             turn_page(driver, '个人空间')
             continue
+
+        # 任务点级断点：直接回到上次那一章的页面，不再从第 1 节翻
+        try:
+            resume_url = progress.chapter_url(course_name)
+        except Exception:
+            resume_url = ''
+        if resume_url:
+            print(color.yellow(f'《{course_name}》回到上次所在的章节继续'), flush=True)
+            try:
+                driver.get(resume_url)
+                time.sleep(2)
+                experience(driver)
+            except Exception as exc:
+                print(color.red(f'回到上次章节失败，改从课程首页进入：{exc}'), flush=True)
 
         try:
             mission_ok = find_mission(driver,task_type,speed,course_name)

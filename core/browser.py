@@ -432,6 +432,8 @@ def create_driver(browser: str, driver_path: str = "", speed="1", headless: bool
             shutil.rmtree(profile, ignore_errors=True)
             raise
         drv.implicitly_wait(2)
+        if not with_extensions and str(speed) != "1":
+            print("本次未加载浏览器扩展（含倍速扩展），倍速改由脚本直接设置", flush=True)
         return drv
 
     plans: list[tuple[bool, tuple]] = [

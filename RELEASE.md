@@ -144,6 +144,7 @@ gh api repos/L71615/Unlink-Xuexitong/releases/tags/vx.y.z | ConvertFrom-Json |
 
 | 版本 | 类型 | 内容 |
 |---|---|---|
+| 1.2.0 | 功能 | 多账号切换（DPAPI 存密码）、任务点级断点（章节/任务点/视频秒数）、进度不再编造、完成判定复核、人脸链路可诊断 + 补交 + 等待可调、清理全局 cookie 死代码 |
 | 1.1.4 | 修复 | 首次导航 `tab crashed`：每次重试换新配置目录、加启动自检、崩溃降级 `--no-sandbox`、中途崩溃可续 |
 | 1.1.3 | 修复 | `unpacking extensions` 失败：临时目录改为「能建子目录」判定、扩展解包失败自动降级 |
 | 1.1.2 | 修复 | `cannot create temp dir for user data dir`：配置目录改到 `runtime/profile/` |
