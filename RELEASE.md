@@ -82,6 +82,14 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 校验根目录必须是 `课业助手\课业助手.exe`（2197 个条目 / 约 86.3 MB）。
 
+> 打包前先确认 `dist\课业助手\task\tool\` 里没有运行产生的配置：只要有人从 `dist` 里启动过软件，那里就会出现 `account_info.json`、`accounts.json`、`cookies_<手机号>.pkl` 和 `输出记录.log`。带进 zip 就是把自己的账号和登录态公开上传。检查命令：
+>
+> ```powershell
+> Get-ChildItem 'dist\课业助手\task\tool' -File | Where-Object { $_.Name -match 'account_info\.json$|accounts\.json$|^cookies_|输出记录' }
+> ```
+>
+> 有输出就先 `Remove-Item 'dist\课业助手\task' -Recurse -Force`（这只是运行期数据，删掉不影响程序启动），再重新打包。
+
 ### 6. 提交并推送
 
 ```powershell
