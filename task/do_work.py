@@ -1,7 +1,7 @@
 import time
 from selenium.webdriver.common.by import By
 from task.tool import color
-from task.quiz_ai import Answer
+from task.quiz_ai import Answer, QUESTION_CSS, find_title_element
 
 class do_work(Answer):
     def __init__(self,driver,course_name,homework,API_KEY):
@@ -67,9 +67,8 @@ class do_work(Answer):
         self.answer_num = []
         # 切换到作业窗口
         self.turn_page(self.driver, '作业作答')
-        # 查找作业题目数量
-        self.questionList0 = self.driver.find_elements(By.CSS_SELECTOR,
-                                                           '[class="padBom50 questionLi fontLabel singleQuesId"]')
+        # 查找作业题目数量（包含匹配，兼容 class 顺序/追加变化）
+        self.questionList0 = self.driver.find_elements(By.CSS_SELECTOR, QUESTION_CSS)
         print(color.green(f'作业题目数量：{len(self.questionList0)}'), flush=True)
         for i in range(len(self.questionList0)):
             self.title_num = i + 1
@@ -81,24 +80,37 @@ class do_work(Answer):
             self.questionType = self.questionList0[i].get_attribute('typename')
             if self.questionType not in ['填空题','判断题','单选题','多选题','简答题','名词解释','论述题']:
                 print(color.red(f'第{i+1}题题型为{self.questionType},无法作答'))
+                # 占位，保证四个列表下标一致，否则后面会串题
+                self.questionType_list.append(self.questionType or '')
+                self.only_title_text.append('')
+                self.all_optionWebElementList.append(None)
                 continue
-            self.title = self.questionList0[i].find_element(By.CSS_SELECTOR, '[class="mark_name colorDeep fontLabel workTextWrap"]').text
-            self.title_text=self.title [self.title.find(")") + 1:]
-            # self.title_text=self.title [self.title.find("】") + 1:]
+            # 标题元素用候选链定位，作业页结构变化时也不会整份崩掉
+            title_element = find_title_element(self.questionList0[i])
+            self.title = (title_element.text or '').strip()
+            if ')' in self.title:
+                self.title_text = self.title[self.title.find(")") + 1:]
+            elif '】' in self.title:
+                self.title_text = self.title[self.title.find("】") + 1:]
+            else:
+                self.title_text = self.title
             self.only_title_text.append(self.title_text)
             self.questionType_list.append(self.questionType)
+            # 与 append 后的列表长度对齐，而不是用原始 i
+            index = len(self.questionType_list) - 1
 
-            # print(self.questionType,self.title_content)
             if self.title_text == '':
                 print(color.red('未检测到题目内容'), flush=True)
+                self.all_optionWebElementList.append(None)
                 continue
-            self.optionWebElementList = self.questionList0[i].find_elements(By.CSS_SELECTOR,
-                                                                                     '[class*="clearfix answerBg"]')
+            self.optionWebElementList = self.questionList0[i].find_elements(
+                By.CSS_SELECTOR, '[class*="answerBg"]')
             self.all_optionWebElementList.append(self.optionWebElementList)
             for option_element in self.optionWebElementList:
-                self.option_text_list.append(option_element.get_attribute('aria-label')[:-2])
-            self.all_title_dit[i] = self.title_and_option_text
-            self.num_option_dit[i] = self.option_text_list
+                label = option_element.get_attribute('aria-label') or ''
+                self.option_text_list.append(label[:-2] if len(label) > 2 else label)
+            self.all_title_dit[index] = self.title_and_option_text
+            self.num_option_dit[index] = self.option_text_list
         print(color.red('正在搜索中，请耐心等待...'))
         if self.API_KEY == 'sk-open_deepseek':
             self.no_answer_dit = self.all_title_dit
@@ -120,6 +132,8 @@ class do_work(Answer):
         except:
             print(color.red('保存失败，请手动保存，15秒后继续'), flush=True)
             time.sleep(15)
+            # 找不到保存按钮时留空，避免下面的 for 直接 AttributeError
+            self.save_elements = []
         for save_element in self.save_elements:
             if save_element.text == '暂时保存':
                 save_element.click()

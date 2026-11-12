@@ -44,3 +44,6 @@ runtime/
 .acl-recovery/
 .screens/
 诊断信息.txt
+# 本地工具/驱动产物，不入库
+task/tool/edge_driver/
+dsh-infinite-gen-1/
