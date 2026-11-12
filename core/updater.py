@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.error
 import urllib.request
 import zipfile
 from dataclasses import dataclass
@@ -28,6 +29,8 @@ LATEST_API = f"https://api.github.com/repos/{REPO}/releases/latest"
 RELEASES_PAGE = f"https://github.com/{REPO}/releases/latest"
 USER_AGENT = "CourseHelper-Updater"
 WORK_DIR_NAME = "CourseHelper-update"
+# 发布包的固定命名，API 被限流时靠它拼下载地址
+ASSET_TEMPLATE = "CourseHelper-{version}-win64.zip"
 
 DETACHED_PROCESS = 0x00000008
 CREATE_NO_WINDOW = 0x08000000
@@ -101,6 +104,21 @@ def work_dir() -> str:
 
 def check_latest(timeout: float = 12.0) -> Release | None:
     """请求最新 Release；有新版本返回 Release，已是最新返回 None。"""
+    try:
+        return _check_via_api(timeout)
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError):
+        pass
+    # 未登录的 GitHub API 每小时只有 60 次额度，撞上限时退回读网页的 302 跳转
+    try:
+        tag = _tag_from_redirect(timeout)
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError):
+        return None
+    if not tag:
+        return None
+    return _release_from_tag(tag)
+
+
+def _check_via_api(timeout: float) -> Release | None:
     request = urllib.request.Request(
         LATEST_API,
         headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"})
@@ -119,6 +137,25 @@ def check_latest(timeout: float = 12.0) -> Release | None:
         return Release(tag.lstrip("vV"), url, str(data.get("body") or ""),
                        int(asset.get("size") or 0), name)
     raise UpdateError("最新版本没有上传 zip 安装包")
+
+
+def _tag_from_redirect(timeout: float = 12.0) -> str:
+    """不走 API 也能拿到最新 tag：读 ``releases/latest`` 的跳转目标。"""
+    request = urllib.request.Request(RELEASES_PAGE, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        final = response.geturl()
+    tag = (final or "").rstrip("/").rsplit("/", 1)[-1]
+    return tag if tag[:1] in ("v", "V") else ""
+
+
+def _release_from_tag(tag: str) -> Release | None:
+    """没有 API 数据时按发布命名规则拼出下载地址。"""
+    version = tag.lstrip("vV")
+    if not is_newer(version, APP_VERSION):
+        return None
+    name = ASSET_TEMPLATE.format(version=version)
+    url = f"https://github.com/{REPO}/releases/download/{tag}/{name}"
+    return Release(version, url, "", 0, name)
 
 
 def download(url: str, dest: str, progress=None, timeout: float = 30.0) -> str:

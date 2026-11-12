@@ -36,7 +36,7 @@
 ```powershell
 cd D:\Xuexitong_shuake
 $env:PYTHONIOENCODING='utf-8'
-python -m pytest -q          # 必须全绿，当前基线 164 passed
+python -m pytest -q          # 必须全绿，当前基线 169 passed
 ```
 
 ### 2. 改版本号
@@ -151,6 +151,7 @@ gh api repos/L71615/Unlink-Xuexitong/releases/tags/vx.y.z | ConvertFrom-Json |
 | 打包用了旧资源 | 包内 `Help.txt` 还是老的 | `build_exe.py` 的 `stage_assets()` 会从 `task/tool/` 重新复制，确认改的是源文件 |
 | 更新脚本用 `DETACHED_PROCESS` | `apply.cmd` 卡住不动，文件一直不替换 | 用 `CREATE_NO_WINDOW`：没有控制台时 `tasklist` / `ping` 的管道会挂住进程 |
 | 更新脚本里写中文 | 执行成乱码 | `apply.cmd` 必须纯 ASCII，中文路径只能走 `%~1` / `%~3` 参数传 |
+| 「检查更新」报 403 rate limit | 未登录的 GitHub API 每小时只有 60 次额度 | `check_latest()` 会自动退回读 `releases/latest` 的 302 跳转，按 `CourseHelper-<版本>-win64.zip` 拼下载地址；**发布包命名不能随意改，`ASSET_TEMPLATE` 跟着改** |
 
 ---
 

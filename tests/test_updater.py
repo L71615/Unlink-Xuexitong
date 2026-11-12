@@ -200,6 +200,64 @@ class NotesTests(unittest.TestCase):
         self.assertEqual(updater.summarize_notes(None), "")
 
 
+class RateLimitFallbackTests(unittest.TestCase):
+    """GitHub API 未登录每小时只有 60 次额度，撞上了也得能查到版本。"""
+
+    class _Redirect:
+        def __init__(self, url):
+            self._url = url
+
+        def geturl(self):
+            return self._url
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+    def _forbidden(self):
+        return updater.urllib.error.HTTPError(
+            updater.LATEST_API, 403, "rate limit exceeded", {}, None)
+
+    def test_falls_back_to_redirect_tag(self):
+        with mock.patch("core.updater.urllib.request.urlopen",
+                        side_effect=self._forbidden()), \
+                mock.patch.object(updater, "_tag_from_redirect", return_value="v9.9.9"):
+            release = updater.check_latest()
+        self.assertIsNotNone(release)
+        self.assertEqual(release.version, "9.9.9")
+        self.assertEqual(
+            release.zip_url,
+            "https://github.com/L71615/Unlink-Xuexitong/releases/download/v9.9.9/"
+            "CourseHelper-9.9.9-win64.zip")
+        self.assertEqual(release.file_name, "CourseHelper-9.9.9-win64.zip")
+
+    def test_redirect_tag_not_newer_returns_none(self):
+        with mock.patch("core.updater.urllib.request.urlopen",
+                        side_effect=self._forbidden()), \
+                mock.patch.object(updater, "_tag_from_redirect", return_value="v1.0.0"), \
+                mock.patch.object(updater, "APP_VERSION", "1.4.0"):
+            self.assertIsNone(updater.check_latest())
+
+    def test_both_channels_failing_returns_none(self):
+        with mock.patch("core.updater.urllib.request.urlopen",
+                        side_effect=self._forbidden()):
+            self.assertIsNone(updater.check_latest())
+
+    def test_parses_tag_from_final_url(self):
+        url = "https://github.com/L71615/Unlink-Xuexitong/releases/tag/v1.5.0"
+        with mock.patch("core.updater.urllib.request.urlopen",
+                        return_value=self._Redirect(url)):
+            self.assertEqual(updater._tag_from_redirect(), "v1.5.0")
+
+    def test_non_tag_redirect_returns_empty(self):
+        url = "https://github.com/L71615/Unlink-Xuexitong/releases"
+        with mock.patch("core.updater.urllib.request.urlopen",
+                        return_value=self._Redirect(url)):
+            self.assertEqual(updater._tag_from_redirect(), "")
+
+
 class StripRuntimeTests(unittest.TestCase):
     """更新包不能覆盖用户本机的刷课进度、账号和日志。"""
 
