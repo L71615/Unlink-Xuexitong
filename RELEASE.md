@@ -22,8 +22,8 @@
 4. 一次提交里既有修复又有功能 → 按**功能**算，进第二位。
 5. 纯文档/注释改动（README、本文件）**不发版**，版本号不动。
 
-> 当前：`1.3.0` = 主版本 1 / 功能版本 3 / 修复版本 0。
-> 下一个 bug 修复是 `1.3.1`；下一个新功能是 `1.4.0`。
+> 当前：`1.4.0` = 主版本 1 / 功能版本 4 / 修复版本 0。
+> 下一个 bug 修复是 `1.4.1`；下一个新功能是 `1.5.0`。
 
 ---
 
@@ -36,13 +36,13 @@
 ```powershell
 cd D:\Xuexitong_shuake
 $env:PYTHONIOENCODING='utf-8'
-python -m pytest -q          # 必须全绿，当前基线 114 passed
+python -m pytest -q          # 必须全绿，当前基线 164 passed
 ```
 
 ### 2. 改版本号
 
 - `version.py:10` → `APP_VERSION = "x.y.z"`
-- `README.md:13` 下载名 → `CourseHelper-x.y.z-win64.zip`
+- `README.md:17` 下载名 → `CourseHelper-x.y.z-win64.zip`
 - **更新日志不写进 README / 本文件**：具体改动写在 Release 的说明里（见第 7 步），README 与本文只留 Releases 链接
 
 ### 3. 打包前先关掉旧进程
@@ -81,6 +81,10 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 ```
 
 校验根目录必须是 `课业助手\课业助手.exe`（2197 个条目 / 约 86.3 MB）。
+
+> **zip 的目录结构是自动更新的依赖**：程序内「检查更新」下载这个 zip 后，会剥掉顶层 `课业助手\` 再覆盖安装目录（`core/updater.py` 的 `_single_top`）。如果哪天改成别的结构（比如直接平铺、或者多套一层），`tests/test_updater.py` 会先红，同时要改 `_single_top`。
+>
+> **exe 旁边的 `task/` 靠 `.assets_version` 刷新**：`start.py` 的 `prepare_workdir()` 只在 marker 与 `APP_VERSION` 不同时动手，动手时覆盖程序资源和随包文件、**跳过用户数据**（`USER_DATA_FILES` / `USER_DATA_DIRS` / `USER_DATA_SUFFIXES`，和 `.gitignore` 名单一致）。新增用户数据文件时两边都要加，否则升级会被覆盖掉。
 
 > 打包前先确认 `dist\课业助手\task\tool\` 里没有运行产生的配置：只要有人从 `dist` 里启动过软件，那里就会出现 `account_info.json`、`accounts.json`、`cookies_<手机号>.pkl` 和 `输出记录.log`。带进 zip 就是把自己的账号和登录态公开上传。检查命令：
 >
@@ -145,6 +149,8 @@ gh api repos/L71615/Unlink-Xuexitong/releases/tags/vx.y.z | ConvertFrom-Json |
 | `gh auth setup-git` | 写 `~/.gitconfig` 被拒 | 用带 token 的 push 命令 |
 | `git pull --rebase` | `unable to unlink old 'task/quiz_ai.py': Invalid argument` | 用 `git merge --no-edit origin/main` |
 | 打包用了旧资源 | 包内 `Help.txt` 还是老的 | `build_exe.py` 的 `stage_assets()` 会从 `task/tool/` 重新复制，确认改的是源文件 |
+| 更新脚本用 `DETACHED_PROCESS` | `apply.cmd` 卡住不动，文件一直不替换 | 用 `CREATE_NO_WINDOW`：没有控制台时 `tasklist` / `ping` 的管道会挂住进程 |
+| 更新脚本里写中文 | 执行成乱码 | `apply.cmd` 必须纯 ASCII，中文路径只能走 `%~1` / `%~3` 参数传 |
 
 ---
 

@@ -43,10 +43,37 @@ def base_dir() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 
+# 用户自己的数据：版本更新时绝不覆盖（和 .gitignore 里的名单保持一致）
+USER_DATA_FILES = frozenset({
+    "account_info.json",
+    "accounts.json",
+    "course_name.json",
+    "course_process.json",
+    "resume_state.json",
+    "point_state.json",
+    "cour_backup.json",
+    "face_url.json",
+})
+USER_DATA_DIRS = ("record", "data")
+USER_DATA_SUFFIXES = (".pkl", ".log")
+
+
+def _is_user_data(relative_path: str) -> bool:
+    """释放目录里的这个相对路径是不是用户数据（不能覆盖）。"""
+    parts = relative_path.replace("\\", "/").split("/")
+    if any(part in USER_DATA_DIRS for part in parts[:-1]):
+        return True
+    name = parts[-1]
+    if name.lower().endswith(USER_DATA_SUFFIXES):
+        return True
+    return name in USER_DATA_FILES
+
+
 def prepare_workdir() -> None:
     """切到程序目录；打包版把内置的 task 资源释放到 exe 旁边。
 
-    只补缺失的文件，不覆盖用户自己的配置、记录和缓存。
+    版本变了就整体刷新一次：程序代码和随包资源覆盖成新的，
+    只保留用户自己的配置、记录和缓存（见 ``_is_user_data``）。
     """
     target = base_dir()
     os.chdir(target)
@@ -75,11 +102,13 @@ def prepare_workdir() -> None:
             for name in files:
                 src_file = os.path.join(root, name)
                 dst_file = os.path.join(destination, name)
-                if not os.path.exists(dst_file):
-                    try:
-                        shutil.copy2(src_file, dst_file)
-                    except OSError:
-                        pass
+                rel_file = name if relative == "." else os.path.join(relative, name)
+                if os.path.exists(dst_file) and _is_user_data(rel_file):
+                    continue
+                try:
+                    shutil.copy2(src_file, dst_file)
+                except OSError:
+                    pass
     try:
         with open(marker, "w", encoding="utf-8") as handle:
             handle.write(APP_VERSION)

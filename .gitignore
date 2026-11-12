@@ -33,7 +33,7 @@ build_assets/
 build_new/
 dist/
 dist_new/
-dist_old/
+dist_old*/
 *.zip
 probe/
 debug/

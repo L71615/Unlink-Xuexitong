@@ -2,15 +2,18 @@
 """设置页：账号、浏览器、功能、高级选项。课程与倍速在主页选择。"""
 from __future__ import annotations
 
+import os
+import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
 from gui import theme
-from gui.widgets import (Card, Hint, PageHeader, SectionTitle, text_button,
-                         primary_button)
-from core import accounts
+from gui.widgets import (Card, Hint, PageHeader, ProgressBar, SectionTitle,
+                         text_button, primary_button)
+from core import accounts, updater
+from version import APP_NAME, APP_VERSION
 
 BROWSERS = ("不指定浏览器", "edge", "chrome")
 QUESTION_CHOICES = ("DeepSeek AI", "随机答题", "不刷题")
@@ -70,6 +73,7 @@ class SettingsPage(ctk.CTkFrame):
         self._on_saved = on_saved
         self._open_timer = open_timer
         self._timer_text = timer_text
+        self._busy = False
         self._build()
 
     # ------------------------------------------------------------------
@@ -99,6 +103,7 @@ class SettingsPage(ctk.CTkFrame):
         self._build_config(left)
         self._build_function(left)
         self._build_advanced(right)
+        self._build_about(right)
         self.load()
 
     def _card(self, parent, title: str) -> Card:
@@ -254,6 +259,125 @@ class SettingsPage(ctk.CTkFrame):
         Hint(self.homework, "作业会逐个打开，作答后点「暂时保存」").grid(
             row=2, column=0, columnspan=3, sticky="w", padx=18, pady=(0, 14))
         self.homework.grid_remove()
+
+    def _build_about(self, parent) -> None:
+        card = self._card(parent, "版本")
+
+        self.version_label = ctk.CTkLabel(
+            card, text=f"{APP_NAME} {APP_VERSION}", font=theme.font(11.5),
+            text_color=theme.TEXT, anchor="w")
+        self.update_button = text_button(card, "检查更新", self.check_update, height=28)
+        self._row(card, 1, "当前版本", self.version_label, self.update_button)
+
+        self.update_hint = Hint(card, "点「检查更新」可一键升到最新版")
+        self.update_hint.grid(row=2, column=0, columnspan=3, sticky="w",
+                              padx=18, pady=(0, 8))
+
+        self.update_bar = ProgressBar(card, 6)
+        self.update_bar.grid(row=3, column=0, columnspan=3, sticky="ew",
+                             padx=18, pady=(0, 10))
+        self.update_bar.grid_remove()
+
+        text_button(card, "更新失败时去发布页手动下载", updater.open_release_page,
+                    height=26).grid(row=4, column=0, columnspan=3, sticky="w",
+                                    padx=18, pady=(0, 14))
+
+    # ------------------------------------------------------------------
+    # 检查更新
+    # ------------------------------------------------------------------
+    def check_update(self) -> None:
+        if self._busy:
+            return
+        if not updater.can_self_update():
+            messagebox.showinfo(
+                "检查更新",
+                "当前是源码运行，git pull 就能拿到最新代码。\n"
+                "打包成 exe 之后，这个按钮才会真正替换文件。")
+            return
+        self._busy = True
+        self.update_button.configure(state="disabled", text="检查中…")
+        self.update_hint.configure(text="正在连接 GitHub…")
+        threading.Thread(target=self._check_worker, daemon=True).start()
+
+    def _check_worker(self) -> None:
+        try:
+            release = updater.check_latest()
+        except Exception as error:
+            self._ui(self._check_failed, error)
+            return
+        self._ui(self._check_done, release)
+
+    def _check_done(self, release) -> None:
+        if release is None:
+            self._release_busy()
+            self.update_hint.configure(text=f"已是最新版本 {APP_VERSION}")
+            messagebox.showinfo("检查更新", f"当前已是最新版本 {APP_VERSION}")
+            return
+        notes = updater.summarize_notes(release.notes)
+        detail = f"\n\n更新内容：{notes}" if notes else ""
+        if not messagebox.askokcancel(
+                "发现新版本",
+                f"最新版本 {release.version}（当前 {APP_VERSION}）{detail}\n\n"
+                "程序会退出，替换文件后自动重启。现在更新吗？"):
+            self._release_busy()
+            return
+        self.update_button.configure(text="下载中…")
+        self.update_hint.configure(text=f"正在下载 {release.version}…")
+        self.update_bar.grid()
+        self.update_bar.set(0)
+        threading.Thread(target=self._download_worker, args=(release,),
+                         daemon=True).start()
+
+    def _check_failed(self, error: Exception) -> None:
+        self._release_busy()
+        self.update_hint.configure(text="检查失败，可以点下面去发布页手动下载")
+        messagebox.showerror(
+            "检查更新失败",
+            f"连不上 GitHub：{error}\n\n"
+            "网络不通时，点「更新失败时去发布页手动下载」自己下 zip 覆盖即可。")
+
+    def _download_worker(self, release) -> None:
+        def progress(done: int, total: int) -> None:
+            if total:
+                self._ui(self._show_progress, done, total)
+
+        try:
+            updater.install(release, progress=progress)
+        except Exception as error:
+            self._ui(self._download_failed, error)
+            return
+        self._ui(self._ready_to_restart)
+
+    def _show_progress(self, done: int, total: int) -> None:
+        self.update_bar.set(done / float(total or 1))
+        self.update_hint.configure(
+            text=f"正在下载 {done / 1048576:.1f} / {total / 1048576:.1f} MB")
+
+    def _download_failed(self, error: Exception) -> None:
+        self._release_busy()
+        self.update_bar.grid_remove()
+        self.update_hint.configure(text="下载失败，可以点下面去发布页手动下载")
+        messagebox.showerror("更新失败", f"下载或解压失败：{error}")
+
+    def _ready_to_restart(self) -> None:
+        self.update_bar.set(1.0)
+        self.update_hint.configure(text="更新已就绪，正在重启…")
+        messagebox.showinfo("更新完成", "程序会立刻退出，约两秒后自动重启为新版本。")
+        try:
+            self.winfo_toplevel().destroy()
+        finally:
+            os._exit(0)
+
+    def _release_busy(self) -> None:
+        self._busy = False
+        self.update_button.configure(state="normal", text="检查更新")
+
+    def _ui(self, callback, *args) -> None:
+        """后台线程不碰 Tk，统一扔回主循环执行。"""
+        try:
+            self.after(0, lambda: callback(*args))
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # 交互
